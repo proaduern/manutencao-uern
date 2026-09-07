@@ -60,7 +60,7 @@ button.risco{border-color:#DFC0B7;color:var(--alerta)}
 .topo button:hover{border-color:#6E8B93}
 .selo{display:inline-block;border:1px solid #35525B;border-radius:2rem;
  padding:.1rem .6rem;font-size:.8rem;color:#C6DADF}
-main{padding:1.5rem 1.25rem;max-width:62rem;width:100%;margin:0 auto}
+main{padding:1.5rem 1.25rem;max-width:64rem;width:100%;margin:0 auto}
 .barra{display:flex;gap:.6rem;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap}
 .barra h2{font-size:1.25rem} .barra .espaco{flex:1}
 .bloco{background:var(--campo);border:1px solid var(--linha);
@@ -74,6 +74,9 @@ main{padding:1.5rem 1.25rem;max-width:62rem;width:100%;margin:0 auto}
 .abas button:hover{border-color:var(--linha)}
 .abas button[aria-selected="true"]{background:var(--tinta);color:var(--papel);
  border-color:var(--tinta);font-weight:500}
+.abas.fina{border-bottom:none;margin-bottom:.75rem}
+.abas.fina button[aria-selected="true"]{background:var(--linha);color:var(--tinta);
+ border-color:var(--linha)}
 .abas .contagem{font-variant-numeric:tabular-nums;opacity:.75;margin-left:.3rem}
 .chamado{background:var(--campo);border:1px solid var(--linha);border-radius:var(--raio);
  padding:1rem 1.1rem;margin-bottom:.7rem;cursor:pointer;display:block;width:100%;
@@ -116,6 +119,7 @@ main{padding:1.5rem 1.25rem;max-width:62rem;width:100%;margin:0 auto}
 .dado .rot{font-size:.85rem;color:var(--tinta-fraca)}
 .dado .val{font-weight:500}
 .cifra{font-size:1.35rem;font-weight:600;font-variant-numeric:tabular-nums}
+.cifra.vazia{color:var(--tinta-fraca);font-weight:400;font-size:1rem}
 img.foto{max-width:100%;border:1px solid var(--linha);border-radius:var(--raio)}
 .vazio{text-align:center;padding:2.5rem 1rem;color:var(--tinta-fraca)}
 table{width:100%;border-collapse:collapse;font-size:.93rem}
@@ -125,6 +129,11 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 tr:last-child td{border-bottom:none}
 tfoot td{font-weight:600;border-top:2px solid var(--linha);border-bottom:none}
 .rolagem{overflow-x:auto}
+table input,table select{padding:.35rem .45rem;font-size:.9rem}
+.parecer{border-left:4px solid var(--linha);padding-left:1rem}
+.parecer.grave{border-left-color:var(--alerta)}
+.parecer.bom{border-left-color:var(--ok)}
+.parecer .vered{font-size:1.1rem;font-weight:600}
 .grade-insumo{display:grid;gap:.6rem;grid-template-columns:1fr;margin-bottom:.8rem}
 @media (min-width:760px){.grade-insumo{grid-template-columns:1fr 2.4fr .8fr 1fr 1fr auto}}
 .grade-insumo .campo{margin:0}
@@ -189,7 +198,8 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 const $ = id => document.getElementById(id);
 let EU=null, CATEGORIAS=[], TIPOS=[], AMBIENTES=[], FRASES=[];
 let PREDIOS=[], FUNCIONARIOS=[], TABELAS=[];
-let ABA="TODOS", ORDEM="urgencia", ABA_FISC="decisoes";
+let ABA="TODOS", ORDEM="urgencia", ABA_FISC="decisoes", ABA_ADM="unidades";
+let REL_DE=null, REL_ATE=null, REL_POR="unidade", REL_RATING="geral";
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>
  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -203,6 +213,8 @@ function traduzir(msg){const m=(msg||"").toLowerCase();
  if(m.includes("row-level security"))return "Você não tem permissão para esta ação.";
  if(m.includes("duplicate key")&&m.includes("sha256"))
    return "Esta mesma foto já foi enviada em outro chamado. Tire uma foto nova do local.";
+ if(m.includes("duplicate key")&&m.includes("email"))return "Este e-mail já tem perfil no sistema.";
+ if(m.includes("duplicate key"))return "Já existe registro com esses dados.";
  return msg||"Não foi possível concluir.";}
 const NOME_PERFIL={ADMIN:"Administração",GESTOR_CONTRATO:"Gestão do contrato",
  FISCAL_ADM:"Fiscalização administrativa",FISCAL_TECNICO:"Fiscalização técnica",
@@ -219,6 +231,8 @@ const mesAno=s=>s?new Date(s+"T12:00:00").toLocaleDateString("pt-BR",{month:"2-d
 const reais=n=>Number(n||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const GLOBAL=p=>["ADMIN","GESTOR_CONTRATO","FISCAL_ADM","FISCAL_TECNICO"].includes(p);
 const ALCADA=p=>["GESTOR_CONTRATO","FISCAL_ADM","FISCAL_TECNICO"].includes(p);
+const iso=d=>d.toISOString().slice(0,10);
+const soDigitos=s=>String(s||"").replace(/\D/g,"");
 
 function estadoPrazo(c){
  const fim=["CONCLUIDO","RECUSADO","EM_GARANTIA","ATENDIDO"].includes(c.status);
@@ -276,6 +290,15 @@ function htmlTimeline(tl){
    <p class="oque">${esc(NOME_STATUS[t.status_novo]||t.status_novo)}</p>
    ${t.observacao?`<p class="obs">${esc(t.observacao)}</p>`:""}</li>`).join("")
    ||`<li><p class="obs">Sem registros.</p></li>`}</ul></div>`;}
+function baixarCSV(nome,cabecalho,linhas){
+ const sep=";";
+ const txt=[cabecalho.join(sep)].concat(linhas.map(l=>l.map(v=>{
+   const s=String(v??"").replace(/"/g,'""');
+   return /[;\n"]/.test(s)?`"${s}"`:s;}).join(sep))).join("\r\n");
+ const blob=new Blob(["\uFEFF"+txt],{type:"text/csv;charset=utf-8"});
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(blob); a.download=nome; a.click();
+ setTimeout(()=>URL.revokeObjectURL(a.href),2000);}
 
 /* ================= DEMANDANTE ================= */
 async function carregarCatalogos(){
@@ -512,8 +535,9 @@ async function telaDetalheEmpresa(id){
   <div class="dado"><p class="rot">Descrição</p><p class="val">${esc(c.descricao)}</p></div></div>
   ${imgs.length?`<div class="bloco"><h3>Registro fotográfico</h3><div class="par">${imgs.join("")}</div></div>`:""}
   <div class="bloco"><h3>Orçamento</h3>
-   <p class="nota">Acima de R$ 2.000, somando o que a mesma unidade já orçou na mesma
-    categoria nos últimos 30 dias, o chamado vai para autorização.</p>
+   ${podeOrcar?`<p class="nota">Enquanto o orçamento não for enviado, nada é reservado no saldo.
+    Incluir item aqui é rascunho; o botão “Enviar orçamento” é que compromete o contrato.</p>`
+   :`<p class="nota">Orçamento fechado.</p>`}
    ${tabelaInsumo(prev,"previsto",podeOrcar)}
    ${podeOrcar?`<div class="grade-insumo" style="margin-top:1rem">
     <div class="campo"><label for="iCod">Código</label><input id="iCod"></div>
@@ -614,7 +638,9 @@ async function telaDetalheEmpresa(id){
 async function telaFiscal(){
  const abas=[["decisoes","Decisões"],["chamados","Chamados"]];
  if(GLOBAL(EU.perfil)) abas.push(["cotas","Cotas e saldo"]);
- if(!ALCADA(EU.perfil)&&!GLOBAL(EU.perfil)) ABA_FISC="chamados";
+ abas.push(["relatorios","Relatórios"]);
+ if(EU.perfil==="ADMIN") abas.push(["admin","Administração"]);
+ if(!ALCADA(EU.perfil)&&!GLOBAL(EU.perfil)&&ABA_FISC==="decisoes") ABA_FISC="chamados";
  $("conteudo").innerHTML=`<div class="barra"><h2>Fiscalização</h2></div>
   <div id="avisoFisc"></div><div class="abas" id="abasFisc">
   ${abas.map(([k,r])=>`<button data-k="${k}" aria-selected="${ABA_FISC===k}">${r}</button>`).join("")}</div>
@@ -623,6 +649,8 @@ async function telaFiscal(){
   b.onclick=()=>{ABA_FISC=b.dataset.k;telaFiscal();});
  if(ABA_FISC==="decisoes") await painelDecisoes();
  else if(ABA_FISC==="cotas") await painelCotas();
+ else if(ABA_FISC==="relatorios") await painelRelatorios();
+ else if(ABA_FISC==="admin") await painelAdmin();
  else await painelChamados();}
 
 async function painelDecisoes(){
@@ -679,7 +707,6 @@ async function painelDecisoes(){
       ?`<button class="discreto" data-tr="${s.contrato_id}|${s.unidade_id}|${s.competencia}|${s.sobra}">Transpor</button>`
       :`<span class="valor">só a fiscalização técnica</span>`}</td></tr>`).join("")}
    </tbody></table></div></div>`:""}`;
-
  document.querySelectorAll("[data-aut]").forEach(b=>b.onclick=()=>decidir(Number(b.dataset.aut),true));
  document.querySelectorAll("[data-rec]").forEach(b=>b.onclick=()=>decidir(Number(b.dataset.rec),false));
  document.querySelectorAll("[data-hom]").forEach(b=>b.onclick=()=>homologar(Number(b.dataset.hom),true));
@@ -692,7 +719,6 @@ async function painelDecisoes(){
    {p_contrato:Number(ct),p_unidade:Number(un),p_de:comp,p_valor:Number(val)});
   if(error)return recado("avisoFisc",traduzir(error.message),"erro");
   await telaFiscal(); recado("avisoFisc","Transposição autorizada.","bom");});
-
  async function decidir(id,ok){
   const just=$("just"+id)?.value.trim()||null;
   if(!ok&&(!just||just.length<10))
@@ -752,8 +778,8 @@ async function painelCotas(){
     <div><p class="rot">Valor do contrato</p><p class="cifra">${reais(s.valor_base)}</p></div>
     <div><p class="rot">Provisionado</p><p class="cifra">${reais(s.provisionado)}</p></div>
     <div><p class="rot">Liquidado</p><p class="cifra">${reais(s.liquidado)}</p></div>
-    <div><p class="rot">Disponível</p><p class="cifra">${reais(s.disponivel)}</p></div></div>
-   </div>`:`<div class="bloco"><h3>Sem contrato ativo</h3>
+    <div><p class="rot">Disponível</p><p class="cifra">${reais(s.disponivel)}</p></div></div></div>`
+  :`<div class="bloco"><h3>Sem contrato ativo</h3>
     <p class="nota">Nenhum contrato vigente cadastrado, ou seu perfil não tem acesso ao saldo.</p></div>`}
   <div class="bloco"><h3>Cotas por unidade</h3>
    <p class="nota">Unidade sem cota atribuída não aparece aqui: ela consome direto o saldo global.</p>
@@ -766,6 +792,116 @@ async function painelCotas(){
     <td class="num">${reais(c.disponivel)}</td></tr>`).join("")}</tbody></table></div>`
    :`<p class="vazio">Nenhuma cota mensal atribuída. Todas as unidades operam contra o saldo global.</p>`}
   </div>`;}
+
+function fmt(v,f){
+ if(v===null||v===undefined) return null;
+ if(f==="reais") return reais(v);
+ if(f==="pct")   return Number(v).toLocaleString("pt-BR",{minimumFractionDigits:1})+"%";
+ if(f==="nota")  return Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2});
+ if(f==="horas") return Number(v).toLocaleString("pt-BR")+" h";
+ return Number(v).toLocaleString("pt-BR");}
+
+async function painelRelatorios(){
+ if(!REL_DE){ const h=new Date();
+  REL_DE=iso(new Date(h.getFullYear(),h.getMonth(),1)); REL_ATE=iso(h); }
+ $("painelFisc").innerHTML=`<div class="barra">
+   <div class="campo" style="margin:0"><label for="rDe">De</label>
+    <input id="rDe" type="date" value="${REL_DE}"></div>
+   <div class="campo" style="margin:0"><label for="rAte">Até</label>
+    <input id="rAte" type="date" value="${REL_ATE}"></div>
+   <div class="campo" style="margin:0"><label for="rPor">Agrupar por</label>
+    <select id="rPor"><option value="unidade">Unidade</option><option value="predio">Prédio</option>
+     <option value="categoria">Categoria</option><option value="funcionario">Funcionário</option>
+     <option value="nivel">Nível de urgência</option><option value="status">Status</option></select></div>
+   <div class="campo" style="margin:0"><label>&nbsp;</label>
+    <button class="principal" id="rGerar">Gerar</button></div>
+  </div><div id="corpoRel"><p class="vazio">Carregando…</p></div>`;
+ $("rPor").value=REL_POR;
+ $("rGerar").onclick=()=>{REL_DE=$("rDe").value;REL_ATE=$("rAte").value;
+  REL_POR=$("rPor").value;painelRelatorios();};
+ await montarRelatorio();}
+
+async function montarRelatorio(){
+ const [{data:ind,error:e1},{data:grp},{data:rat},{data:par}]=await Promise.all([
+  sb.rpc("relatorio_indicadores",{p_de:REL_DE,p_ate:REL_ATE}),
+  sb.rpc("relatorio_agrupado",{p_de:REL_DE,p_ate:REL_ATE,p_por:REL_POR}),
+  sb.rpc("rating_periodo",{p_de:REL_DE,p_ate:REL_ATE,p_por:REL_RATING}),
+  sb.rpc("parecer_renovacao")]);
+ if(e1) return recado("avisoFisc",traduzir(e1.message),"erro");
+ const I={}; (ind||[]).forEach(r=>I[r.chave]=r);
+ const cartao=(k)=>{const r=I[k]; if(!r) return "";
+  const v=fmt(r.valor,r.formato);
+  return `<div><p class="rot">${esc(r.rotulo)}</p>
+   <p class="cifra ${v===null?"vazia":""}">${v===null?"sem dados":v}</p></div>`;};
+ const p=(par||[])[0];
+ const vered={"SUGERE NAO RENOVACAO":["grave","Sugere não renovação"],
+  "SEM RESSALVA":["bom","Sem ressalva"],
+  "AMOSTRA INSUFICIENTE":["","Amostra insuficiente para parecer"]}[p?.veredito]||["",""];
+ $("corpoRel").innerHTML=`
+  <div class="bloco"><h3>Consolidado do período</h3>
+   <p class="nota">De ${soData(REL_DE)} a ${soData(REL_ATE)}. Considera os chamados abertos
+    no intervalo, independente de quando foram concluídos.</p>
+   <div class="tres">${["chamados","previsto","executado","divergencia"].map(cartao).join("")}</div>
+   <div class="tres" style="margin-top:1rem">${["sla_pct","retrabalho_pct","horas","emergencias"].map(cartao).join("")}</div></div>
+  <div class="bloco"><h3>Satisfação</h3>
+   <p class="nota">As duas médias aparecem lado a lado de propósito. A da direita inclui os
+    chamados homologados por decurso de prazo, que recebem nota 4 sem ninguém ter avaliado.</p>
+   <div class="tres">${["nota_real","n_real","nota_tacita","n_tacita"].map(cartao).join("")}</div></div>
+  <div class="bloco"><div class="barra"><h3>Por ${esc(REL_POR)}</h3><span class="espaco"></span>
+    <button class="discreto" id="rCsv">Baixar CSV</button></div>
+   ${(grp||[]).length?`<div class="rolagem"><table><thead><tr>
+     <th>${esc(REL_POR)}</th><th class="num">Chamados</th><th class="num">Orçado</th>
+     <th class="num">Executado</th><th class="num">Prazo</th><th class="num">Retrabalho</th>
+     <th class="num">Nota</th></tr></thead><tbody>
+    ${grp.map(g=>`<tr><td>${esc(g.grupo)}</td><td class="num">${g.chamados}</td>
+     <td class="num">${reais(g.previsto)}</td><td class="num">${reais(g.executado)}</td>
+     <td class="num">${g.sla_base>0?Math.round(100*g.sla_no_prazo/g.sla_base)+"%":"—"}</td>
+     <td class="num">${g.retrabalho}</td>
+     <td class="num">${g.nota_real!==null?Number(g.nota_real).toLocaleString("pt-BR",{minimumFractionDigits:2})
+        +` <span class="valor">(${g.n_real})</span>`:"—"}</td></tr>`).join("")}
+   </tbody></table></div>`:`<p class="vazio">Nenhum chamado no período.</p>`}</div>
+  <div class="bloco"><div class="barra"><h3>Rating</h3><span class="espaco"></span>
+    <select id="rRat" style="width:auto"><option value="geral">Geral</option>
+     <option value="categoria">Por categoria</option>
+     <option value="funcionario">Por funcionário</option></select></div>
+   <p class="nota">Notas de aceite tácito ficam fora da média oficial. Abaixo de cinco
+    avaliações reais o sistema não publica número.</p>
+   ${(rat||[]).length?`<div class="rolagem"><table><thead><tr><th>Grupo</th>
+     <th class="num">Nota</th><th class="num">Avaliações</th>
+     <th class="num">Com tácitas</th><th class="num">Total</th></tr></thead><tbody>
+    ${rat.map(r=>`<tr><td>${esc(r.grupo)}</td>
+     <td class="num">${r.amostra_suficiente&&r.nota!==null
+        ?Number(r.nota).toLocaleString("pt-BR",{minimumFractionDigits:2})
+        :`<span class="valor">amostra insuficiente</span>`}</td>
+     <td class="num">${r.avaliacoes}</td>
+     <td class="num">${r.nota_com_tacita!==null
+        ?Number(r.nota_com_tacita).toLocaleString("pt-BR",{minimumFractionDigits:2}):"—"}</td>
+     <td class="num">${r.avaliacoes_com_tacita}</td></tr>`).join("")}
+   </tbody></table></div>`:`<p class="vazio">Nenhuma avaliação no período.</p>`}</div>
+  ${p?`<div class="bloco"><h3>Parecer de renovação</h3>
+   <p class="nota">Doze meses corridos, desde ${soData(p.desde)}. Só entram notas dadas
+    pelas unidades. O parecer é subsídio para decisão, não a decisão.</p>
+   <div class="parecer ${vered[0]}"><p class="vered">${esc(vered[1])}</p>
+    <p class="valor">Média ${p.nota!==null?Number(p.nota).toLocaleString("pt-BR",{minimumFractionDigits:2}):"—"}
+     · ${p.avaliacoes} avaliação${p.avaliacoes===1?"":"ões"}
+     · mínimo exigido ${p.minimo_exigido} · limite ${Number(p.limite).toLocaleString("pt-BR",{minimumFractionDigits:2})}</p></div>
+   <div class="barra" style="margin:1rem 0 0">
+    <button class="discreto" id="rMem">Baixar memória de cálculo</button></div>
+   <p class="ajuda">A memória lista os chamados que compõem a média. Sem ela, um parecer de
+    não renovação não sobrevive ao contraditório.</p></div>`:""}`;
+ $("rRat").value=REL_RATING;
+ $("rRat").onchange=()=>{REL_RATING=$("rRat").value;montarRelatorio();};
+ $("rCsv").onclick=()=>baixarCSV(`relatorio-${REL_POR}-${REL_DE}-a-${REL_ATE}.csv`,
+  [REL_POR,"chamados","orcado","executado","prazo_base","prazo_no_prazo","retrabalho","nota","avaliacoes"],
+  (grp||[]).map(g=>[g.grupo,g.chamados,g.previsto,g.executado,g.sla_base,g.sla_no_prazo,
+                    g.retrabalho,g.nota_real??"",g.n_real]));
+ if($("rMem"))$("rMem").onclick=async()=>{
+  const {data,error}=await sb.rpc("parecer_memoria");
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  baixarCSV(`memoria-parecer-${iso(new Date())}.csv`,
+   ["chamado","aberto_em","unidade","categoria","funcionario","nota","origem","executado"],
+   (data||[]).map(r=>[r.numero,dataHora(r.aberto_em),r.unidade,r.categoria,
+                      r.funcionario,r.nota,r.origem,r.executado]));};}
 
 async function telaDetalheFiscal(id){
  $("conteudo").innerHTML=`<div class="barra"><button class="discreto" id="btnVoltar">Voltar</button>
@@ -810,12 +946,476 @@ async function telaDetalheFiscal(id){
    </tbody></table></div></div>`:""}
   ${htmlTimeline(tl)}`;}
 
-/* ================= ENTRADA ================= */
-function telaPendente(){
- $("conteudo").innerHTML=`<div class="bloco"><h3>Tela ainda não construída</h3>
-  <p class="nota">Seu acesso funciona, mas a tela deste perfil entra na próxima parte:
-   parâmetros, feriados, cadastros e carga da tabela de preços.</p></div>`;}
+/* ================= ADMINISTRAÇÃO ================= */
+async function painelAdmin(){
+ const sub=[["unidades","Unidades"],["usuarios","Usuários"],["contrato","Contrato e equipe"],
+            ["parametros","Parâmetros e prazos"],["feriados","Feriados"],["precos","Tabela de preços"]];
+ $("painelFisc").innerHTML=`<div class="abas fina" id="abasAdm">
+   ${sub.map(([k,r])=>`<button data-k="${k}" aria-selected="${ABA_ADM===k}">${r}</button>`).join("")}
+  </div><div id="painelAdm"><p class="vazio">Carregando…</p></div>`;
+ document.querySelectorAll("#abasAdm button").forEach(b=>
+  b.onclick=()=>{ABA_ADM=b.dataset.k;painelAdmin();});
+ const mapa={unidades:admUnidades,usuarios:admUsuarios,contrato:admContrato,
+             parametros:admParametros,feriados:admFeriados,precos:admPrecos};
+ await (mapa[ABA_ADM]||admUnidades)();}
 
+async function admUnidades(){
+ const [{data:uni,error},{data:pre}]=await Promise.all([
+  sb.from("v_unidade_gestao").select("*").order("nome"),
+  sb.from("cidade_predio").select("id,nome").eq("ativo",true).order("id")]);
+ if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+ const semEmail=(uni||[]).filter(u=>!u.email).length;
+ const semPredio=(uni||[]).filter(u=>!u.cidade_predio_id).length;
+ $("painelAdm").innerHTML=`<div class="bloco">
+   <h3>Unidades demandantes</h3>
+   <p class="nota">Sem e-mail, a unidade não recebe aviso de chamado atendido e o aceite
+    tácito homologa tudo por silêncio. Sem prédio, ela não aparece em nenhuma aba da empresa.</p>
+   ${semEmail||semPredio?`<div class="recado atencao">${semEmail} sem e-mail · ${semPredio} sem prédio</div>`:""}
+   <div class="rolagem"><table><thead><tr><th>Unidade</th><th>E-mail</th><th>Prédio</th>
+     <th class="num">Cota mensal</th><th></th></tr></thead><tbody>
+   ${(uni||[]).map(u=>`<tr>
+     <td>${esc(u.nome)}</td>
+     <td><input id="ue${u.id}" type="email" value="${esc(u.email||"")}" style="min-width:14rem"></td>
+     <td><select id="up${u.id}"><option value="">—</option>
+       ${(pre||[]).map(p=>`<option value="${p.id}" ${p.id===u.cidade_predio_id?"selected":""}>${esc(p.nome)}</option>`).join("")}
+     </select></td>
+     <td class="num"><input id="uc${u.id}" type="number" step="0.01" min="0"
+       value="${u.cota_mensal??""}" placeholder="sem cota" style="max-width:8rem"></td>
+     <td><button class="discreto" data-su="${u.id}">Salvar</button></td></tr>`).join("")}
+   </tbody></table></div>
+   <p class="ajuda">Cota em branco significa que a unidade consome direto o saldo global do
+    contrato, sem teto mensal próprio.</p></div>`;
+ document.querySelectorAll("[data-su]").forEach(b=>b.onclick=async()=>{
+  const id=Number(b.dataset.su);
+  const cota=$("uc"+id).value.trim();
+  const {error}=await sb.from("unidade").update({
+    email:$("ue"+id).value.trim()||null,
+    cidade_predio_id:Number($("up"+id).value)||null,
+    cota_mensal:cota===""?null:Number(cota)}).eq("id",id);
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Unidade salva.","bom"); admUnidades();});}
+
+async function admUsuarios(){
+ const [{data:us},{data:sem},{data:uni},{data:alc}]=await Promise.all([
+  sb.from("v_usuario_gestao").select("*").order("nome_completo"),
+  sb.rpc("acessos_sem_perfil"),
+  sb.from("unidade").select("id,nome").eq("ativo",true).order("nome"),
+  sb.from("v_alcada_setorial").select("*")]);
+ const perfis=Object.entries(NOME_PERFIL);
+ $("painelAdm").innerHTML=`
+  <div class="bloco"><h3>Acessos sem perfil</h3>
+   <p class="nota">Criar login exige a chave protegida do servidor, que não pode ficar dentro
+    desta página. Então o acesso nasce em Authentication → Add user, no painel do Supabase,
+    e aqui recebe nome, perfil e unidade.</p>
+   ${(sem||[]).length?(sem.map(s=>`<div class="chamado neutro" style="cursor:default">
+     <span class="linha1"><span class="tit">${esc(s.email)}</span>
+      <span class="num">criado em ${dataHora(s.criado_em)}</span></span>
+     <div class="par" style="margin-top:.7rem">
+      <div class="campo"><label>Nome completo</label><input id="nn${s.id}"></div>
+      <div class="campo"><label>Matrícula</label><input id="nm${s.id}"></div>
+      <div class="campo"><label>Perfil</label><select id="np${s.id}">
+       ${perfis.map(([k,v])=>`<option value="${k}">${v}</option>`).join("")}</select></div>
+      <div class="campo"><label>Unidade</label><select id="nu${s.id}"><option value="">—</option>
+       ${(uni||[]).map(u=>`<option value="${u.id}">${esc(u.nome)}</option>`).join("")}</select></div>
+     </div><button class="principal" data-np="${s.id}|${esc(s.email)}">Criar perfil</button>
+    </div>`).join("")):`<p class="vazio">Nenhum acesso pendente.</p>`}</div>
+
+  <div class="bloco"><h3>Usuários com perfil</h3>
+   <div class="rolagem"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th>
+     <th>Vínculo</th><th class="num">Alçada</th><th>Ativo</th><th></th></tr></thead><tbody>
+   ${(us||[]).map(u=>`<tr><td>${esc(u.nome_completo)}</td><td>${esc(u.email)}</td>
+     <td><select id="ep${u.id}">${perfis.map(([k,v])=>
+       `<option value="${k}" ${k===u.perfil?"selected":""}>${v}</option>`).join("")}</select></td>
+     <td><select id="eu${u.id}"><option value="">—</option>
+       ${(uni||[]).map(x=>`<option value="${x.id}" ${x.id===u.unidade_id?"selected":""}>${esc(x.nome)}</option>`).join("")}
+       </select></td>
+     <td class="num">${u.perfil==="FISCAL_SETORIAL"?u.unidades_alcada:"—"}</td>
+     <td><input id="ea${u.id}" type="checkbox" ${u.ativo?"checked":""} style="width:auto"></td>
+     <td><button class="discreto" data-eu="${u.id}">Salvar</button></td></tr>`).join("")}
+   </tbody></table></div>
+   <p class="ajuda">Usuário não se apaga: desmarque “ativo”. O histórico dos chamados
+    dele precisa continuar apontando para alguém.</p></div>
+
+  <div class="bloco"><h3>Alçada dos fiscais setoriais</h3>
+   <p class="nota">O fiscal setorial só enxerga as unidades listadas aqui. Sem nenhuma linha,
+    ele entra no sistema e não vê nada.</p>
+   ${(us||[]).filter(u=>u.perfil==="FISCAL_SETORIAL").map(u=>`
+     <div class="chamado neutro" style="cursor:default">
+      <span class="linha1"><span class="tit">${esc(u.nome_completo)}</span></span>
+      <span class="linha2">${(alc||[]).filter(a=>a.usuario_id===u.id)
+        .map(a=>esc(a.unidade_nome)).join(" · ")||"nenhuma unidade atribuída"}</span>
+      <div class="barra" style="margin:.7rem 0 0">
+       <select id="au${u.id}" style="max-width:22rem">${(uni||[]).map(x=>
+         `<option value="${x.id}">${esc(x.nome)}</option>`).join("")}</select>
+       <button class="discreto" data-aa="${u.id}">Incluir</button>
+       <button class="discreto risco" data-ar="${u.id}">Remover</button></div>
+     </div>`).join("")||`<p class="vazio">Nenhum fiscal setorial cadastrado.</p>`}</div>`;
+
+ document.querySelectorAll("[data-np]").forEach(b=>b.onclick=async()=>{
+  const [id,email]=b.dataset.np.split("|");
+  const nome=$("nn"+id).value.trim(), perfil=$("np"+id).value;
+  const unidade=Number($("nu"+id).value)||null;
+  if(nome.length<5)return recado("avisoFisc","Informe o nome completo.","erro");
+  if(perfil==="DEMANDANTE"&&!unidade)
+   return recado("avisoFisc","Demandante precisa de unidade de vínculo.","erro");
+  if(perfil==="EMPRESA")
+   return recado("avisoFisc","Usuário da empresa é cadastrado na aba Contrato e equipe.","atencao");
+  const {error}=await sb.from("usuario").insert({id,nome_completo:nome,email,
+    matricula:$("nm"+id).value.trim()||null,perfil,unidade_id:unidade,
+    precisa_trocar_senha:true});
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Perfil criado.","bom"); admUsuarios();});
+
+ document.querySelectorAll("[data-eu]").forEach(b=>b.onclick=async()=>{
+  const id=b.dataset.eu;
+  const {error}=await sb.from("usuario").update({perfil:$("ep"+id).value,
+    unidade_id:Number($("eu"+id).value)||null, ativo:$("ea"+id).checked}).eq("id",id);
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Usuário salvo.","bom"); admUsuarios();});
+
+ document.querySelectorAll("[data-aa]").forEach(b=>b.onclick=async()=>{
+  const id=b.dataset.aa;
+  const {error}=await sb.from("fiscal_setorial_unidade")
+    .insert({usuario_id:id,unidade_id:Number($("au"+id).value)});
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro"); admUsuarios();});
+ document.querySelectorAll("[data-ar]").forEach(b=>b.onclick=async()=>{
+  const id=b.dataset.ar;
+  const {error}=await sb.from("fiscal_setorial_unidade").delete()
+    .eq("usuario_id",id).eq("unidade_id",Number($("au"+id).value));
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro"); admUsuarios();});}
+
+async function admContrato(){
+ const [{data:emp},{data:con},{data:adi},{data:fun},{data:uni}]=await Promise.all([
+  sb.from("empresa").select("*").order("id"),
+  sb.from("contrato").select("*").order("id"),
+  sb.from("contrato_aditivo").select("*").order("registrado_em",{ascending:false}),
+  sb.from("funcionario_empresa").select("*").order("nome"),
+  sb.from("contrato_unidade").select("contrato_id,unidade_id")]);
+ const e=(emp||[])[0], c=(con||[])[0];
+ const vinculos=(uni||[]).filter(v=>c&&v.contrato_id===c.id).length;
+ $("painelAdm").innerHTML=`
+  <div class="bloco"><h3>Empresa contratada</h3>
+   <div class="par">
+    <div class="campo"><label>Razão social</label><input id="cRs" value="${esc(e?.razao_social||"")}"></div>
+    <div class="campo"><label>CNPJ</label><input id="cCnpj" value="${esc(e?.cnpj||"")}" maxlength="18">
+     <p class="ajuda">Pode digitar com pontos; o sistema guarda só os números.</p></div></div>
+   <button class="principal" id="btnEmp">${e?"Salvar empresa":"Cadastrar empresa"}</button></div>
+
+  ${e?`<div class="bloco"><h3>Contrato</h3>
+   <div class="par">
+    <div class="campo"><label>Número</label><input id="ctNum" value="${esc(c?.numero||"")}"></div>
+    <div class="campo"><label>Objeto</label><input id="ctObj" value="${esc(c?.objeto||"")}"></div>
+    <div class="campo"><label>Início da vigência</label>
+     <input id="ctIni" type="date" value="${c?.vigencia_inicio||""}"></div>
+    <div class="campo"><label>Fim da vigência</label>
+     <input id="ctFim" type="date" value="${c?.vigencia_fim||""}"></div>
+    <div class="campo"><label>Valor contratado</label>
+     <input id="ctVal" type="number" step="0.01" value="${c?.valor_contratado||""}"></div>
+    <div class="campo"><label>Garantia dos serviços (dias)</label>
+     <input id="ctGar" type="number" min="1" value="${c?.prazo_garantia_dias||""}"></div></div>
+   <div class="barra"><button class="principal" id="btnCon">${c?"Salvar contrato":"Cadastrar contrato"}</button>
+    ${c?`<button class="discreto" id="btnVinc">Vincular todas as unidades (${vinculos} de 44)</button>`:""}</div>
+   <p class="ajuda">O modelo aceita mais de um contrato, para o caso de lotes por região.
+    Esta tela trata do primeiro; havendo lote, avise que eu abro a lista.</p></div>`:""}
+
+  ${c?`<div class="bloco"><h3>Aditivos</h3>
+   <p class="nota">Aditivo de valor só entra no saldo com nota de empenho e data do reforço.
+    Sem isso o sistema mostraria dinheiro que ainda não existe.</p>
+   <div class="par">
+    <div class="campo"><label>Tipo</label><select id="adTipo">
+     <option value="VALOR">Acréscimo de valor</option><option value="PRAZO">Prorrogação</option></select></div>
+    <div class="campo"><label>Número do aditivo</label><input id="adNum"></div>
+    <div class="campo"><label>Valor do acréscimo</label><input id="adVal" type="number" step="0.01"></div>
+    <div class="campo"><label>Nova vigência</label><input id="adFim" type="date"></div>
+    <div class="campo"><label>Nota de empenho</label><input id="adNe"></div>
+    <div class="campo"><label>Data do reforço</label><input id="adDt" type="date"></div></div>
+   <button class="principal" id="btnAdi">Lançar aditivo</button>
+   ${(adi||[]).length?`<div class="rolagem" style="margin-top:1rem"><table><thead><tr>
+     <th>Tipo</th><th>Número</th><th class="num">Valor</th><th>Nova vigência</th>
+     <th>Empenho</th><th>Reforço</th></tr></thead><tbody>
+    ${adi.map(a=>`<tr><td>${a.tipo==="VALOR"?"Valor":"Prazo"}</td><td>${esc(a.numero||"—")}</td>
+     <td class="num">${a.valor_acrescimo?reais(a.valor_acrescimo):"—"}</td>
+     <td>${soData(a.nova_vigencia_fim)}</td><td>${esc(a.nota_empenho||"—")}</td>
+     <td>${soData(a.data_reforco_empenho)}</td></tr>`).join("")}</tbody></table></div>`:""}</div>`:""}
+
+  ${e?`<div class="bloco"><h3>Equipe da contratada</h3>
+   <p class="nota">Sem funcionário cadastrado, a empresa não consegue usar mão de obra fixa
+    e o rating por funcionário fica vazio.</p>
+   <div class="par">
+    <div class="campo"><label>Nome</label><input id="fnNome"></div>
+    <div class="campo"><label>Função</label><input id="fnFunc"></div>
+    <div class="campo"><label>CPF</label><input id="fnCpf" maxlength="14"></div>
+    <div class="campo"><label>Cidade de lotação</label><input id="fnCid"></div></div>
+   <button class="principal" id="btnFun">Incluir funcionário</button>
+   ${(fun||[]).length?`<div class="rolagem" style="margin-top:1rem"><table><thead><tr>
+     <th>Nome</th><th>Função</th><th>Cidade</th><th>Ativo</th><th></th></tr></thead><tbody>
+    ${fun.map(f=>`<tr><td>${esc(f.nome)}</td><td>${esc(f.funcao)}</td>
+     <td>${esc(f.cidade_lotacao||"—")}</td>
+     <td><input id="fa${f.id}" type="checkbox" ${f.ativo?"checked":""} style="width:auto"></td>
+     <td><button class="discreto" data-sf="${f.id}">Salvar</button></td></tr>`).join("")}
+   </tbody></table></div>`:`<p class="vazio">Nenhum funcionário cadastrado.</p>`}</div>`:""}`;
+
+ $("btnEmp").onclick=async()=>{
+  const rs=$("cRs").value.trim(), cnpj=soDigitos($("cCnpj").value);
+  if(rs.length<3)return recado("avisoFisc","Informe a razão social.","erro");
+  if(cnpj.length!==14)return recado("avisoFisc","O CNPJ precisa ter 14 números.","erro");
+  const {error}=e?await sb.from("empresa").update({razao_social:rs,cnpj}).eq("id",e.id)
+                 :await sb.from("empresa").insert({razao_social:rs,cnpj});
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Empresa salva.","bom"); admContrato();};
+
+ if($("btnCon"))$("btnCon").onclick=async()=>{
+  const d={empresa_id:e.id,numero:$("ctNum").value.trim(),objeto:$("ctObj").value.trim()||null,
+   vigencia_inicio:$("ctIni").value||null,vigencia_fim:$("ctFim").value||null,
+   valor_contratado:Number($("ctVal").value)||null,
+   prazo_garantia_dias:Number($("ctGar").value)||null};
+  if(!d.numero||!d.vigencia_inicio||!d.vigencia_fim||!d.valor_contratado||!d.prazo_garantia_dias)
+   return recado("avisoFisc","Preencha número, vigência, valor e prazo de garantia.","erro");
+  const {error}=c?await sb.from("contrato").update(d).eq("id",c.id)
+                 :await sb.from("contrato").insert(d);
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Contrato salvo.","bom"); admContrato();};
+
+ if($("btnVinc"))$("btnVinc").onclick=async()=>{
+  const {data:todas}=await sb.from("unidade").select("id").eq("ativo",true);
+  const linhas=(todas||[]).map(u=>({contrato_id:c.id,unidade_id:u.id}));
+  const {error}=await sb.from("contrato_unidade").upsert(linhas,{ignoreDuplicates:true});
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Unidades vinculadas ao contrato.","bom"); admContrato();};
+
+ if($("btnAdi"))$("btnAdi").onclick=async()=>{
+  const tipo=$("adTipo").value;
+  const d={contrato_id:c.id,tipo,numero:$("adNum").value.trim()||null,
+   valor_acrescimo:tipo==="VALOR"?Number($("adVal").value)||null:null,
+   nova_vigencia_fim:tipo==="PRAZO"?($("adFim").value||null):null,
+   nota_empenho:$("adNe").value.trim()||null,
+   data_reforco_empenho:$("adDt").value||null,registrado_por:EU.id};
+  if(tipo==="VALOR"&&(!d.valor_acrescimo||!d.nota_empenho||!d.data_reforco_empenho))
+   return recado("avisoFisc","Acréscimo exige valor, nota de empenho e data do reforço.","erro");
+  const {error}=await sb.from("contrato_aditivo").insert(d);
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Aditivo lançado.","bom"); admContrato();};
+
+ if($("btnFun"))$("btnFun").onclick=async()=>{
+  const cpf=soDigitos($("fnCpf").value);
+  if($("fnNome").value.trim().length<5)return recado("avisoFisc","Informe o nome do funcionário.","erro");
+  if(!$("fnFunc").value.trim())return recado("avisoFisc","Informe a função.","erro");
+  if(cpf.length!==11)return recado("avisoFisc","O CPF precisa ter 11 números.","erro");
+  const {error}=await sb.from("funcionario_empresa").insert({empresa_id:e.id,
+   nome:$("fnNome").value.trim(),funcao:$("fnFunc").value.trim(),cpf,
+   cidade_lotacao:$("fnCid").value.trim()||null});
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Funcionário incluído.","bom"); admContrato();};
+
+ document.querySelectorAll("[data-sf]").forEach(b=>b.onclick=async()=>{
+  const id=Number(b.dataset.sf);
+  const {error}=await sb.from("funcionario_empresa").update({ativo:$("fa"+id).checked}).eq("id",id);
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro"); admContrato();});}
+
+async function admParametros(){
+ const [{data:par},{data:niv}]=await Promise.all([
+  sb.from("v_parametro").select("*").order("chave"),
+  sb.from("v_nivel_urgencia").select("*").order("ordem")]);
+ const semPrazo=(niv||[]).filter(n=>!n.prazo_horas_corridas&&!n.prazo_dias_uteis&&!n.usa_data_esperada);
+ $("painelAdm").innerHTML=`
+  <div class="bloco"><h3>Prazos por nível de urgência</h3>
+   ${semPrazo.length?`<div class="recado atencao">
+     ${semPrazo.map(n=>esc(n.nome)).join(" e ")} ${semPrazo.length===1?"está":"estão"} sem prazo.
+     Chamado devolvido e reaberto em garantia ficam sem SLA — justamente o retrabalho,
+     que é o indicador que mede a empresa.</div>`:""}
+   <div class="rolagem"><table><thead><tr><th>Nível</th><th class="num">Horas corridas</th>
+     <th class="num">Dias úteis</th><th>Escolhido pelo usuário</th><th></th></tr></thead><tbody>
+   ${(niv||[]).map(n=>`<tr><td>${esc(n.nome)}</td>
+     <td class="num"><input id="nh${n.codigo}" type="number" min="1" style="max-width:6rem"
+       value="${n.prazo_horas_corridas??""}"></td>
+     <td class="num"><input id="nd${n.codigo}" type="number" min="1" style="max-width:6rem"
+       value="${n.prazo_dias_uteis??""}"></td>
+     <td>${n.usa_data_esperada?"data informada":(n.selecionavel_por_frase?"sim":"forçado pelo sistema")}</td>
+     <td>${n.usa_data_esperada?"":`<button class="discreto" data-sn="${n.codigo}">Salvar</button>`}</td>
+    </tr>`).join("")}</tbody></table></div>
+   <p class="ajuda">Preencha horas corridas OU dias úteis, nunca os dois.</p></div>
+
+  <div class="bloco"><h3>Parâmetros do sistema</h3>
+   <p class="nota">Origem ESPEC veio da especificação original; REVISAO veio da revisão
+    crítica do projeto.</p>
+   <div class="rolagem"><table><thead><tr><th>Parâmetro</th><th>Valor</th>
+     <th>Origem</th><th></th></tr></thead><tbody>
+   ${(par||[]).map(p=>`<tr><td>${esc(p.descricao)}<br><span class="valor">${esc(p.chave)}</span></td>
+     <td><input id="pv${p.chave}" value="${esc(p.valor)}" style="max-width:12rem"></td>
+     <td><span class="valor">${p.origem}</span></td>
+     <td><button class="discreto" data-sp="${esc(p.chave)}">Salvar</button></td></tr>`).join("")}
+   </tbody></table></div></div>`;
+ document.querySelectorAll("[data-sn]").forEach(b=>b.onclick=async()=>{
+  const cod=b.dataset.sn;
+  const h=$("nh"+cod).value.trim(), d=$("nd"+cod).value.trim();
+  if(h&&d)return recado("avisoFisc","Informe horas corridas OU dias úteis, não os dois.","erro");
+  if(!h&&!d)return recado("avisoFisc","Informe um dos dois prazos.","erro");
+  const {error}=await sb.rpc("definir_prazo_nivel",
+   {p_codigo:cod,p_horas:h?Number(h):null,p_dias_uteis:d?Number(d):null});
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Prazo salvo.","bom"); admParametros();});
+ document.querySelectorAll("[data-sp]").forEach(b=>b.onclick=async()=>{
+  const ch=b.dataset.sp;
+  const {error}=await sb.rpc("salvar_parametro",{p_chave:ch,p_valor:$("pv"+ch).value.trim()});
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Parâmetro salvo.","bom"); admParametros();});}
+
+async function admFeriados(){
+ const ano=new Date().getFullYear();
+ const {data:fer}=await sb.from("v_feriado").select("*").order("data");
+ const anos=[...new Set((fer||[]).map(f=>f.ano))].sort();
+ $("painelAdm").innerHTML=`
+  <div class="bloco"><h3>Gerar calendário</h3>
+   <p class="nota">Nacionais, estadual do RN e municipais dos seis municípios onde a UERN
+    tem prédio. Os móveis saem da data da Páscoa, calculada, não digitada.</p>
+   <div class="barra">
+    <div class="campo" style="margin:0"><label for="fAno">Ano</label>
+     <input id="fAno" type="number" min="2024" max="2100" value="${ano}" style="max-width:8rem"></div>
+    <div class="campo" style="margin:0"><label>&nbsp;</label>
+     <button class="principal" id="btnGer">Gerar</button></div></div>
+   <p class="ajuda">Rodar duas vezes não duplica nada. Carnaval, quarta de cinzas e Corpus
+    Christi entram como UERN por serem ponto facultativo: confira contra o calendário
+    acadêmico e remova se for o caso. Caicó tem um feriado móvel, a segunda quinta-feira
+    da Festa de Sant'Ana, que precisa ser lançado à mão todo ano.</p></div>
+
+  <div class="bloco"><h3>Incluir feriado</h3>
+   <div class="par">
+    <div class="campo"><label>Data</label><input id="nfData" type="date"></div>
+    <div class="campo"><label>Descrição</label><input id="nfDesc"></div>
+    <div class="campo"><label>Abrangência</label><select id="nfAbr">
+     <option value="NACIONAL">Nacional</option><option value="ESTADUAL">Estadual</option>
+     <option value="MUNICIPAL">Municipal</option><option value="UERN">UERN</option></select></div>
+    <div class="campo"><label>Município</label><select id="nfMun"><option value="">—</option>
+     ${["Mossoró","Natal","Caicó","Assu","Patu","Pau dos Ferros"]
+       .map(m=>`<option>${m}</option>`).join("")}</select>
+     <p class="ajuda">Só para abrangência municipal.</p></div></div>
+   <button class="principal" id="btnNf">Incluir</button></div>
+
+  <div class="bloco"><h3>Calendário cadastrado</h3>
+   ${(fer||[]).length?`<div class="barra"><select id="fFil" style="width:auto">
+     ${anos.map(a=>`<option ${a===ano?"selected":""}>${a}</option>`).join("")}</select></div>
+    <div class="rolagem"><table id="tabFer"><thead><tr><th>Data</th><th>Dia</th>
+     <th>Descrição</th><th>Abrangência</th><th>Município</th><th></th></tr></thead><tbody></tbody>
+    </table></div>`:`<p class="vazio">Nenhum feriado cadastrado. Gere o ano acima.</p>`}</div>`;
+
+ function pintarFer(){
+  const a=Number($("fFil").value);
+  document.querySelector("#tabFer tbody").innerHTML=(fer||[]).filter(f=>f.ano===a)
+   .map(f=>`<tr><td>${soData(f.data)}</td><td>${esc(f.dia_semana||"")}</td>
+    <td>${esc(f.descricao)}</td><td>${f.abrangencia}</td><td>${esc(f.municipio||"—")}</td>
+    <td><button class="discreto risco" data-df="${f.id}">Remover</button></td></tr>`).join("");
+  document.querySelectorAll("[data-df]").forEach(b=>b.onclick=async()=>{
+   const {error}=await sb.from("feriado").delete().eq("id",Number(b.dataset.df));
+   if(error)return recado("avisoFisc",traduzir(error.message),"erro"); admFeriados();});}
+ if($("fFil")){$("fFil").onchange=pintarFer;pintarFer();}
+
+ $("btnGer").onclick=async()=>{
+  const b=$("btnGer");b.disabled=true;b.textContent="Gerando…";
+  const {data,error}=await sb.rpc("gerar_feriados",{p_ano:Number($("fAno").value)});
+  b.disabled=false;b.textContent="Gerar";
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc",`${data} feriado${data===1?"":"s"} incluído${data===1?"":"s"}.`,"bom");
+  admFeriados();};
+ $("btnNf").onclick=async()=>{
+  const abr=$("nfAbr").value, mun=$("nfMun").value||null;
+  if(!$("nfData").value)return recado("avisoFisc","Informe a data.","erro");
+  if(!$("nfDesc").value.trim())return recado("avisoFisc","Informe a descrição.","erro");
+  if(abr==="MUNICIPAL"&&!mun)return recado("avisoFisc","Feriado municipal precisa do município.","erro");
+  const {error}=await sb.from("feriado").insert({data:$("nfData").value,
+   descricao:$("nfDesc").value.trim(),abrangencia:abr,municipio:abr==="MUNICIPAL"?mun:null});
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Feriado incluído.","bom"); admFeriados();};}
+
+async function admPrecos(){
+ const [{data:tabs},{data:itens}]=await Promise.all([
+  sb.from("tabela_referencia").select("*").order("id"),
+  sb.from("v_item_referencia").select("*").order("codigo").limit(400)]);
+ $("painelAdm").innerHTML=`
+  <div class="bloco"><h3>Tabelas de referência</h3>
+   <div class="rolagem"><table><thead><tr><th>Nome</th><th>Competência</th><th>UF</th>
+     <th>Desonerada</th><th class="num">BDI %</th><th class="num">Itens</th><th></th></tr></thead><tbody>
+   ${(tabs||[]).map(t=>`<tr><td>${esc(t.nome)}</td><td>${mesAno(t.competencia)}</td>
+     <td>${t.uf}</td><td>${t.desonerado?"sim":"não"}</td>
+     <td class="num"><input id="tb${t.id}" type="number" step="0.001" style="max-width:7rem"
+       value="${t.bdi_percentual??""}"></td>
+     <td class="num">${(itens||[]).filter(i=>i.tabela_id===t.id).length}</td>
+     <td><button class="discreto" data-st="${t.id}">Salvar BDI</button></td></tr>`).join("")}
+   </tbody></table></div>
+   <p class="ajuda">A contagem considera apenas os 400 primeiros itens carregados nesta tela.</p></div>
+
+  <div class="bloco"><h3>Carregar planilha</h3>
+   <p class="nota">Arquivo CSV com quatro colunas na primeira linha: codigo, descricao,
+    unidade, valor. Separador ponto e vírgula ou vírgula. Item novo entra homologado;
+    item existente tem o preço atualizado.</p>
+   <div class="par">
+    <div class="campo"><label>Tabela de destino</label><select id="pcTab">
+     ${(tabs||[]).map(t=>`<option value="${t.id}">${esc(t.nome)} · ${mesAno(t.competencia)}</option>`).join("")}</select></div>
+    <div class="campo"><label>Arquivo</label><input id="pcArq" type="file" accept=".csv,text/csv"></div></div>
+   <button class="principal" id="btnCarga">Carregar</button>
+   <div id="pcRes"></div></div>
+
+  <div class="bloco"><h3>Catálogo</h3>
+   ${(itens||[]).length?`<div class="rolagem"><table><thead><tr><th>Código</th><th>Descrição</th>
+     <th>Un.</th><th class="num">Valor</th><th>Situação</th><th class="num">Usos</th><th></th></tr></thead><tbody>
+    ${itens.map(i=>`<tr><td>${esc(i.codigo)}</td><td>${esc(i.descricao)}</td>
+     <td>${esc(i.unidade_medida)}</td><td class="num">${reais(i.valor_unitario)}</td>
+     <td>${i.status==="HOMOLOGADO"?"homologado":i.status==="REJEITADO"?"rejeitado":"pendente"}</td>
+     <td class="num">${i.usos}</td>
+     <td>${i.status==="HOMOLOGADO"
+       ?`<button class="discreto risco" data-rv="${i.id}">Reverter</button>`:""}</td></tr>`).join("")}
+   </tbody></table></div>`:`<p class="vazio">Nenhum item cadastrado. Carregue a planilha acima.</p>`}
+   <p class="ajuda">Reverter devolve o item para a fila de homologação, com justificativa
+    registrada na auditoria. Os chamados antigos não mudam: o preço deles é cópia congelada.</p></div>`;
+
+ document.querySelectorAll("[data-st]").forEach(b=>b.onclick=async()=>{
+  const id=Number(b.dataset.st), v=$("tb"+id).value.trim();
+  const {error}=await sb.from("tabela_referencia")
+    .update({bdi_percentual:v===""?null:Number(v)}).eq("id",id);
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","BDI salvo.","bom"); admPrecos();});
+
+ document.querySelectorAll("[data-rv]").forEach(b=>b.onclick=async()=>{
+  const just=prompt("Por que este preço volta para a fila? (mínimo 15 caracteres)");
+  if(just===null)return;
+  const {error}=await sb.rpc("reverter_homologacao",
+   {p_item:Number(b.dataset.rv),p_justificativa:just});
+  if(error)return recado("avisoFisc",traduzir(error.message),"erro");
+  recado("avisoFisc","Homologação revertida. O item voltou para a fila.","bom"); admPrecos();});
+
+ $("btnCarga").onclick=async()=>{
+  const f=$("pcArq").files[0];
+  if(!f)return recado("avisoFisc","Escolha o arquivo CSV.","erro");
+  const b=$("btnCarga");b.disabled=true;b.textContent="Lendo…";
+  try{
+   const txt=await f.text();
+   const linhas=txt.split(/\r?\n/).filter(l=>l.trim());
+   const sep=(linhas[0].match(/;/g)||[]).length>=(linhas[0].match(/,/g)||[]).length?";":",";
+   const cab=linhas[0].split(sep).map(s=>s.trim().toLowerCase().replace(/^"|"$/g,""));
+   const ic=cab.indexOf("codigo"), id=cab.indexOf("descricao");
+   const iu=cab.indexOf("unidade"), iv=cab.indexOf("valor");
+   if(ic<0||id<0||iv<0)
+    throw new Error("O cabeçalho precisa ter as colunas codigo, descricao, unidade e valor.");
+   const itens=[];
+   for(const l of linhas.slice(1)){
+    const col=l.split(sep).map(s=>s.trim().replace(/^"|"$/g,""));
+    const valor=Number(String(col[iv]||"").replace(/\./g,"").replace(",","."));
+    if(!col[ic]||!isFinite(valor))continue;
+    itens.push({codigo:col[ic],descricao:col[id]||col[ic],
+      unidade:iu>=0?(col[iu]||"un"):"un",valor});
+   }
+   if(!itens.length)throw new Error("Nenhuma linha válida encontrada no arquivo.");
+   b.textContent=`Enviando ${itens.length}…`;
+   const {data,error}=await sb.rpc("carregar_itens",
+    {p_tabela:Number($("pcTab").value),p_itens:itens});
+   if(error)throw error;
+   const r=(data||[])[0]||{};
+   $("pcRes").innerHTML=`<div class="recado bom">${r.inseridos||0} incluídos ·
+     ${r.atualizados||0} atualizados</div>`;
+   admPrecos();
+  }catch(e){$("pcRes").innerHTML=`<div class="recado erro">${esc(traduzir(e.message))}</div>`;}
+  b.disabled=false;b.textContent="Carregar";};}
+
+/* ================= ENTRADA ================= */
 async function abrirApp(p){
  EU=p; $("entrada").style.display="none"; $("app").style.display="flex";
  $("tNome").textContent=p.nome_completo;
@@ -823,9 +1423,7 @@ async function abrirApp(p){
  $("tVinculo").textContent=p.unidade_nome?p.unidade_nome+(p.predio_nome?" · "+p.predio_nome:""):(p.empresa_nome||"");
  if(p.perfil==="DEMANDANTE"){await carregarCatalogos();await telaLista();}
  else if(p.perfil==="EMPRESA"){await carregarEmpresa();await telaEmpresa();}
- else if(["ADMIN","GESTOR_CONTRATO","FISCAL_ADM","FISCAL_TECNICO","FISCAL_SETORIAL"].includes(p.perfil))
-  await telaFiscal();
- else telaPendente();}
+ else await telaFiscal();}
 async function carregarPerfil(){
  const {data:{user}}=await sb.auth.getUser(); if(!user)return null;
  const {data}=await sb.from("v_meu_perfil").select("*").eq("id",user.id).single();
