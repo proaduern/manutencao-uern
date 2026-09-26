@@ -153,6 +153,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       contrato: {
         ...contrato,
+        rubricas: dadosGrandezas.rubricas,
         valorTotal: grandezasContrato.valorContratado,
         valorContratado: grandezasContrato.valorContratado,
         valorProvisionado: grandezasContrato.valorProvisionado,

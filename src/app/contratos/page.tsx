@@ -143,7 +143,13 @@ export default function ContratosCotasPage() {
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
-        setContrato(data.contrato);
+        const contratoCarregado = data.contrato
+          ? {
+              ...data.contrato,
+              rubricas: data.contrato.rubricas || data.rubricas,
+            }
+          : null;
+        setContrato(contratoCarregado);
         setTodosContratos(data.todosContratos || []);
         setCotas(data.cotas || []);
         setTodasUnidades(data.todasUnidades || []);
@@ -1007,7 +1013,7 @@ export default function ContratosCotasPage() {
                           <div className="mt-2 bg-slate-900/80 p-2.5 rounded-lg border border-purple-900/30">
                             <span className="text-[10px] text-emerald-400 font-bold uppercase block">Saldo Disponível Real</span>
                             <span className="text-lg font-extrabold text-emerald-300 font-mono">
-                              R$ {(contrato.rubricas?.insumos?.saldoDisponivel ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              R$ {(contrato.rubricas?.insumos?.saldoDisponivel ?? Math.max(0, (contrato.valorInsumos ? parseFloat(contrato.valorInsumos.toString()) : 0) - (contrato.rubricas?.insumos?.provisionado ?? 0) - (contrato.rubricas?.insumos?.liquidado ?? 0))).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </span>
                           </div>
                           <div className="mt-2 grid grid-cols-2 gap-1 text-[10px] text-slate-300">
@@ -1048,7 +1054,7 @@ export default function ContratosCotasPage() {
                           <div className="mt-2 bg-slate-900/80 p-2.5 rounded-lg border border-amber-900/30">
                             <span className="text-[10px] text-emerald-400 font-bold uppercase block">Saldo Disponível Real</span>
                             <span className="text-lg font-extrabold text-emerald-300 font-mono">
-                              R$ {(contrato.rubricas?.servicosEventuais?.saldoDisponivel ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              R$ {(contrato.rubricas?.servicosEventuais?.saldoDisponivel ?? Math.max(0, (contrato.valorServicosEventuais ? parseFloat(contrato.valorServicosEventuais.toString()) : 0) - (contrato.rubricas?.servicosEventuais?.provisionado ?? 0) - (contrato.rubricas?.servicosEventuais?.liquidado ?? 0))).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </span>
                           </div>
                           <div className="mt-2 grid grid-cols-2 gap-1 text-[10px] text-slate-300">
@@ -1100,7 +1106,7 @@ export default function ContratosCotasPage() {
                               </span>
                             </div>
                             <span className="text-lg font-extrabold text-emerald-300 font-mono block">
-                              R$ {(contrato.rubricas?.diarias?.saldoDisponivel ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              R$ {(contrato.rubricas?.diarias?.saldoDisponivel ?? Math.max(0, (contrato.valorDiarias ? parseFloat(contrato.valorDiarias.toString()) : 0) - (contrato.rubricas?.diarias?.provisionado ?? 0) - (contrato.rubricas?.diarias?.liquidado ?? 0))).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             </span>
                           </div>
                           <div className="mt-2 grid grid-cols-2 gap-1 text-[10px] text-slate-300">
@@ -1612,7 +1618,7 @@ export default function ContratosCotasPage() {
                             R$ {(contrato.rubricas?.insumos?.liquidado ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </td>
                           <td className="p-3 text-right font-extrabold text-emerald-700 bg-emerald-50/20 font-mono">
-                            R$ {(contrato.rubricas?.insumos?.saldoDisponivel ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            R$ {(contrato.rubricas?.insumos?.saldoDisponivel ?? Math.max(0, (contrato.valorInsumos ? parseFloat(contrato.valorInsumos.toString()) : 0) - (contrato.rubricas?.insumos?.provisionado ?? 0) - (contrato.rubricas?.insumos?.liquidado ?? 0))).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </td>
                           <td className="p-3 w-36">
                             <div className="flex items-center gap-2">
@@ -1656,7 +1662,7 @@ export default function ContratosCotasPage() {
                             R$ {(contrato.rubricas?.servicosEventuais?.liquidado ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </td>
                           <td className="p-3 text-right font-extrabold text-emerald-700 bg-emerald-50/20 font-mono">
-                            R$ {(contrato.rubricas?.servicosEventuais?.saldoDisponivel ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            R$ {(contrato.rubricas?.servicosEventuais?.saldoDisponivel ?? Math.max(0, (contrato.valorServicosEventuais ? parseFloat(contrato.valorServicosEventuais.toString()) : 0) - (contrato.rubricas?.servicosEventuais?.provisionado ?? 0) - (contrato.rubricas?.servicosEventuais?.liquidado ?? 0))).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </td>
                           <td className="p-3 w-36">
                             <div className="flex items-center gap-2">
@@ -1709,9 +1715,9 @@ export default function ContratosCotasPage() {
                             </div>
                           </td>
                           <td className="p-3 text-right font-extrabold text-emerald-700 bg-emerald-50/20 font-mono">
-                            R$ {(contrato.rubricas?.diarias?.saldoDisponivel ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            R$ {(contrato.rubricas?.diarias?.saldoDisponivel ?? Math.max(0, (contrato.valorDiarias ? parseFloat(contrato.valorDiarias.toString()) : 0) - (contrato.rubricas?.diarias?.provisionado ?? 0) - (contrato.rubricas?.diarias?.liquidado ?? 0))).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                             <div className="text-[10px] text-emerald-800 font-bold">
-                              ({contrato.rubricas?.diarias?.saldoDiasDisponivel || 0} restantes)
+                              ({contrato.rubricas?.diarias?.saldoDiasDisponivel ?? (contrato.rubricas?.diarias?.diasContratados || 0)} restantes)
                             </div>
                           </td>
                           <td className="p-3 w-36">
