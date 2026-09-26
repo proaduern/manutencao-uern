@@ -13,8 +13,14 @@ import {
   TrendingUp,
   ArrowRight,
   ShieldCheck,
+  DollarSign,
+  Users,
+  Layers,
+  Briefcase,
+  Building2,
 } from 'lucide-react';
 import Link from 'next/link';
+import { obterGrandezasContrato } from '@/lib/services/contrato';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +29,15 @@ export default async function DashboardPage() {
   if (!session) redirect('/login');
 
   // Buscar métricas reais no banco de dados Neon
-  const [totalAbertos, totalExecucao, totalValidacao, totalConcluidos, chamadosRecentes, agendaAtiva] = await Promise.all([
+  const [
+    totalAbertos,
+    totalExecucao,
+    totalValidacao,
+    totalConcluidos,
+    chamadosRecentes,
+    agendaAtiva,
+    contratoAtivo,
+  ] = await Promise.all([
     prisma.chamado.count({
       where: { status: { in: ['ABERTO', 'RECEBIDO', 'EM_ORCAMENTO', 'AGUARDANDO_AUTORIZACAO'] } },
     }),
@@ -48,7 +62,14 @@ export default async function DashboardPage() {
       where: { status: { in: ['ABERTA_COLETA', 'EM_CONSOLIDACAO_PROAD', 'RATIFICADA_REITORIA', 'EM_EXECUCAO'] } },
       orderBy: { criadoEm: 'desc' },
     }),
+    prisma.contrato.findFirst({
+      where: { ativo: true },
+      orderBy: { criadoEm: 'desc' },
+    }),
   ]);
+
+  const grandezas = contratoAtivo ? await obterGrandezasContrato(contratoAtivo.id) : null;
+  const rubricas = grandezas?.rubricas;
 
   return (
     <div className="min-h-screen flex bg-slate-50">
@@ -87,6 +108,153 @@ export default async function DashboardPage() {
               )}
             </div>
           </div>
+
+          {/* Cards de Saldos por Rubrica do Contrato (Visão Compacta Imediata) */}
+          {contratoAtivo && (
+            <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm border border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                    <DollarSign className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-xs font-bold tracking-wider text-white uppercase flex items-center gap-2">
+                      <span>Controle Orçamentário e Evolução de Saldos</span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-normal lowercase">
+                        {contratoAtivo.numero}/{contratoAtivo.ano}
+                      </span>
+                    </h2>
+                    <p className="text-[11px] text-slate-400">
+                      Saldos orçamentários disponíveis em tempo real por rubrica do contrato
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="text-[11px] text-slate-300 font-mono hidden sm:flex items-center gap-2">
+                    <span className="text-slate-400">Total Contratado:</span>
+                    <strong className="text-emerald-400 font-bold">
+                      R$ {(contratoAtivo.valorTotal ? parseFloat(contratoAtivo.valorTotal.toString()) : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </strong>
+                  </div>
+                  <Link
+                    href="/contratos"
+                    className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 bg-slate-800/90 hover:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors"
+                  >
+                    <span>Ver Contratos & Cotas</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              </div>
+
+              {/* Grid 4 Colunas dos Saldos por Rubrica */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                {/* 1. Mão de Obra Residente */}
+                <div className="bg-slate-800/90 rounded-xl p-3.5 border border-slate-700 flex flex-col justify-between space-y-2.5">
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50">
+                        Custo Fixo Mensal
+                      </span>
+                      <Users className="w-3.5 h-3.5 text-blue-400" />
+                    </div>
+                    <h3 className="text-xs font-bold text-slate-200">1. Mão de Obra Residente</h3>
+                    <div className="text-base font-extrabold text-white font-mono mt-1">
+                      R$ {(rubricas?.maoObra?.contratado ?? (contratoAtivo.valorMaoObraResidente ? parseFloat(contratoAtivo.valorMaoObraResidente.toString()) : 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-[11px] text-blue-300 font-mono mt-0.5">
+                      R$ {(rubricas?.maoObra?.custoMensal ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-700/60 text-[10px] text-slate-400 leading-tight flex items-center justify-between">
+                    <span>Postos residentes:</span>
+                    <strong className="text-slate-300 font-mono">{rubricas?.maoObra?.quantidadePostos || 10} dedicados</strong>
+                  </div>
+                </div>
+
+                {/* 2. Insumos sob Demanda */}
+                <div className="bg-slate-800/90 rounded-xl p-3.5 border border-purple-900/40 flex flex-col justify-between space-y-2.5">
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-purple-900/60 text-purple-300 border border-purple-700/50">
+                        Sob Demanda
+                      </span>
+                      <Layers className="w-3.5 h-3.5 text-purple-400" />
+                    </div>
+                    <h3 className="text-xs font-bold text-slate-200">2. Insumos sob Demanda</h3>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      Contratado: <strong className="text-slate-300 font-mono">R$ {(rubricas?.insumos?.contratado ?? (contratoAtivo.valorInsumos ? parseFloat(contratoAtivo.valorInsumos.toString()) : 0)).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</strong>
+                    </div>
+                    <div className="mt-1.5 bg-slate-900/90 p-2 rounded-lg border border-purple-900/30">
+                      <span className="text-[9px] text-emerald-400 font-bold uppercase block">Saldo Disponível Real</span>
+                      <span className="text-base font-black text-emerald-300 font-mono">
+                        R$ {(rubricas?.insumos?.saldoDisponivel ?? (contratoAtivo.valorInsumos ? parseFloat(contratoAtivo.valorInsumos.toString()) : 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
+                    <span className="font-mono text-slate-400">Prov: R$ {(rubricas?.insumos?.provisionado ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</span>
+                    <span className="font-mono text-purple-300 font-bold">{rubricas?.insumos?.percentualConsumido || 0}% cons.</span>
+                  </div>
+                </div>
+
+                {/* 3. Serviços Eventuais */}
+                <div className="bg-slate-800/90 rounded-xl p-3.5 border border-amber-900/40 flex flex-col justify-between space-y-2.5">
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700/50">
+                        Sob Demanda
+                      </span>
+                      <Briefcase className="w-3.5 h-3.5 text-amber-400" />
+                    </div>
+                    <h3 className="text-xs font-bold text-slate-200">3. Serviços Eventuais</h3>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      Contratado: <strong className="text-slate-300 font-mono">R$ {(rubricas?.servicosEventuais?.contratado ?? (contratoAtivo.valorServicosEventuais ? parseFloat(contratoAtivo.valorServicosEventuais.toString()) : 0)).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</strong>
+                    </div>
+                    <div className="mt-1.5 bg-slate-900/90 p-2 rounded-lg border border-amber-900/30">
+                      <span className="text-[9px] text-emerald-400 font-bold uppercase block">Saldo Disponível Real</span>
+                      <span className="text-base font-black text-emerald-300 font-mono">
+                        R$ {(rubricas?.servicosEventuais?.saldoDisponivel ?? (contratoAtivo.valorServicosEventuais ? parseFloat(contratoAtivo.valorServicosEventuais.toString()) : 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
+                    <span className="font-mono text-slate-400">Prov: R$ {(rubricas?.servicosEventuais?.provisionado ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</span>
+                    <span className="font-mono text-amber-300 font-bold">{rubricas?.servicosEventuais?.percentualConsumido || 0}% cons.</span>
+                  </div>
+                </div>
+
+                {/* 4. Diárias de Deslocamento */}
+                <div className="bg-slate-800/90 rounded-xl p-3.5 border border-teal-900/40 flex flex-col justify-between space-y-2.5">
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-teal-900/60 text-teal-300 border border-teal-700/50">
+                        Sob Demanda
+                      </span>
+                      <Building2 className="w-3.5 h-3.5 text-teal-400" />
+                    </div>
+                    <h3 className="text-xs font-bold text-slate-200">4. Diárias Deslocamento</h3>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      Contratado: <strong className="text-slate-300 font-mono">R$ {(rubricas?.diarias?.contratado ?? (contratoAtivo.valorDiarias ? parseFloat(contratoAtivo.valorDiarias.toString()) : 0)).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}</strong>
+                    </div>
+                    <div className="mt-1.5 bg-slate-900/90 p-2 rounded-lg border border-teal-900/30">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] text-emerald-400 font-bold uppercase">Saldo Disponível</span>
+                        <span className="text-[10px] font-mono text-teal-300 font-semibold">{rubricas?.diarias?.saldoDiasDisponivel ?? 0} diárias</span>
+                      </div>
+                      <span className="text-base font-black text-emerald-300 font-mono block">
+                        R$ {(rubricas?.diarias?.saldoDisponivel ?? (contratoAtivo.valorDiarias ? parseFloat(contratoAtivo.valorDiarias.toString()) : 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
+                    <span className="font-mono text-slate-400">Prov: {rubricas?.diarias?.diasProvisionados || 0} d.</span>
+                    <span className="font-mono text-teal-300 font-bold">{rubricas?.diarias?.percentualConsumido || 0}% cons.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Banner de Bifurcação de Atendimento: Rotina vs Agenda Programada */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
