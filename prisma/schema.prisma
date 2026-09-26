@@ -14,8 +14,10 @@ enum Role {
   FISCAL_ADM
   FISCAL_TECNICO
   FISCAL_SETORIAL
+  GESTOR_UNIDADE
   DEMANDANTE
   EMPRESA
+  TECNICO_SOBE
 }
 
 enum StatusChamado {
@@ -65,6 +67,9 @@ model Usuario {
   chamadosAbertos     Chamado[]            @relation("ChamadosAbertos")
   chamadosAutorizados ChamadoAutorizacao[]
   unidadesFiscais     FiscalSetorialUnidade[]
+  agendasCriadas      AgendaServico[]      @relation("AgendaCriadaPor")
+  agendasDemandasCriadas AgendaDemanda[]   @relation("AgendaDemandaCriadaPor")
+  pareceresSobe       AgendaParecerSobe[]
 
   criadoEm        DateTime @default(now())
   atualizadoEm    DateTime @updatedAt
@@ -73,20 +78,29 @@ model Usuario {
 }
 
 model Unidade {
-  id        String   @id @default(uuid())
-  nome      String
-  sigla     String   @unique
-  campus    String
-  codigo    String?  @unique
-  ativo     Boolean  @default(true)
+  id         String   @id @default(uuid())
+  nome       String
+  sigla      String   @unique
+  campus     String
+  codigo     String?  @unique
+  email      String?
+  telefone   String?
+  cotaMensal Decimal? @db.Decimal(14, 2)
+  ativo      Boolean  @default(true)
 
-  predios          CidadePredio[]
+  predioId   String?
+  predio     CidadePredio? @relation("UnidadePredioPrincipal", fields: [predioId], references: [id])
+
+  prediosVinculados UnidadePredio[]
+  sublocais        Sublocal[]
   usuarios         Usuario[]
   chamados         Chamado[]
   contratoUnidades ContratoUnidade[]
   fiscaisSetoriais FiscalSetorialUnidade[]
+  agendasCotas     AgendaUnidadeCota[]
+  agendasDemandas  AgendaDemanda[]
 
-  criadoEm  DateTime @default(now())
+  criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
   @@map("unidades")
@@ -94,17 +108,33 @@ model Unidade {
 
 model CidadePredio {
   id        String   @id @default(uuid())
-  unidadeId String
-  unidade   Unidade  @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
   nome      String
+  campus    String?
   endereco  String?
   ativo     Boolean  @default(true)
 
-  chamados  Chamado[]
+  unidadesPrincipais Unidade[]       @relation("UnidadePredioPrincipal")
+  unidadesVinculadas UnidadePredio[]
+  sublocais          Sublocal[]
+  chamados           Chamado[]
+  agendasDemandas    AgendaDemanda[]
 
   criadoEm  DateTime @default(now())
 
   @@map("cidade_predios")
+}
+
+model UnidadePredio {
+  id        String       @id @default(uuid())
+  unidadeId String
+  unidade   Unidade      @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  predioId  String
+  predio    CidadePredio @relation(fields: [predioId], references: [id], onDelete: Cascade)
+  principal Boolean      @default(false)
+  criadoEm  DateTime     @default(now())
+
+  @@unique([unidadeId, predioId])
+  @@map("unidades_predios")
 }
 
 model FiscalSetorialUnidade {
@@ -139,54 +169,119 @@ model Empresa {
 }
 
 model FuncionarioEmpresa {
-  id        String   @id @default(uuid())
-  empresaId String
-  empresa   Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  nome      String
-  cpf       String   @unique
-  cargo     String
-  ativo     Boolean  @default(true)
+  id            String   @id @default(uuid())
+  empresaId     String
+  empresa       Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  nome          String
+  cpf           String   @unique
+  cargo         String
+  cidadeLotacao String?
+  ativo         Boolean  @default(true)
 
-  criadoEm  DateTime @default(now())
+  chamados      Chamado[]
+
+  criadoEm      DateTime @default(now())
 
   @@map("funcionarios_empresas")
 }
 
 model Contrato {
-  id              String   @id @default(uuid())
-  numero          String
-  ano             Int
-  empresaId       String
-  empresa         Empresa  @relation(fields: [empresaId], references: [id])
-  objeto          String
-  dataInicio      DateTime
-  dataFim         DateTime
-  valorTotal      Decimal  @db.Decimal(14, 2)
-  saldoDisponivel Decimal  @db.Decimal(14, 2)
-  ativo           Boolean  @default(true)
+  id                         String   @id @default(uuid())
+  numero                     String
+  ano                        Int
+  empresaId                  String
+  empresa                    Empresa  @relation(fields: [empresaId], references: [id])
+  objeto                     String
+  dataInicio                 DateTime
+  dataFim                    DateTime
+  prazoGarantiaDias          Int      @default(90)
+  mesesVigencia              Int?     @default(12)
+  
+  // Itens sob demanda (valores anuais dedicados)
+  valorAnualServicosEventuais Decimal? @default(0) @db.Decimal(14, 2)
+  valorAnualInsumos           Decimal? @default(0) @db.Decimal(14, 2)
+  valorAnualDiarias           Decimal? @default(0) @db.Decimal(14, 2)
+  valorDiariaUnitario         Decimal? @default(150.00) @db.Decimal(10, 2)
 
-  aditivos        ContratoAditivo[]
-  unidades        ContratoUnidade[]
+  // Totais calculados proporcionais à vigência
+  valorMaoObraResidente      Decimal? @default(0) @db.Decimal(14, 2)
+  valorServicosEventuais     Decimal? @default(0) @db.Decimal(14, 2)
+  valorInsumos               Decimal? @default(0) @db.Decimal(14, 2)
+  valorDiarias               Decimal? @default(0) @db.Decimal(14, 2)
+  
+  valorTotal                 Decimal  @db.Decimal(14, 2)
+  saldoDisponivel            Decimal  @db.Decimal(14, 2)
+  ativo                      Boolean  @default(true)
 
-  criadoEm        DateTime @default(now())
-  atualizadoEm    DateTime @updatedAt
+  itensMaoObra               ContratoItemMaoObra[]
+  repactuacoes               ContratoRepactuacao[]
+  aditivos                   ContratoAditivo[]
+  unidades                   ContratoUnidade[]
+
+  criadoEm                   DateTime @default(now())
+  atualizadoEm               DateTime @updatedAt
 
   @@unique([numero, ano])
   @@map("contratos")
 }
 
-model ContratoAditivo {
-  id             String   @id @default(uuid())
-  contratoId     String
-  contrato       Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
-  numero         Int
-  tipo           String   // VALOR, PRAZO, MISTO
-  valorAjuste    Decimal? @db.Decimal(14, 2)
-  novaDataFim    DateTime?
-  dataAssinatura DateTime
-  objeto         String?
+model ContratoItemMaoObra {
+  id               String   @id @default(uuid())
+  contratoId       String
+  contrato         Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  funcao           String   // Ex: Eletricista, Encanador, Pedreiro, Pintor, Servente
+  quantidadePostos Int      @default(1)
+  valorMensalPosto Decimal  @db.Decimal(14, 2) // Reajustável por repactuação
+  valorTotalMensal Decimal  @db.Decimal(14, 2) // quantidadePostos * valorMensalPosto
+  
+  funcionarios     ContratoFuncionarioPosto[]
 
-  criadoEm       DateTime @default(now())
+  criadoEm         DateTime @default(now())
+  atualizadoEm     DateTime @updatedAt
+
+  @@map("contrato_itens_mao_obra")
+}
+
+model ContratoFuncionarioPosto {
+  id            String              @id @default(uuid())
+  itemMaoObraId String
+  itemMaoObra   ContratoItemMaoObra @relation(fields: [itemMaoObraId], references: [id], onDelete: Cascade)
+  nomeCompleto  String
+  cpf           String
+  ativo         Boolean             @default(true)
+  criadoEm      DateTime            @default(now())
+
+  @@map("contrato_funcionarios_postos")
+}
+
+model ContratoRepactuacao {
+  id               String   @id @default(uuid())
+  contratoId       String
+  contrato         Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  numero           String?  // Ex: "Repactuação 01/2026"
+  dataRepactuacao  DateTime @default(now())
+  motivo           String   // Ex: "Convenção Coletiva de Trabalho CCT 2026"
+  detalhes         String?  @db.Text
+  valorAjusteTotal Decimal? @db.Decimal(14, 2)
+  criadoEm         DateTime @default(now())
+
+  @@map("contrato_repactuacoes")
+}
+
+model ContratoAditivo {
+  id                 String    @id @default(uuid())
+  contratoId         String
+  contrato           Contrato  @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  numero             String
+  tipo               String    // VALOR, PRAZO
+  valorAjuste        Decimal?  @db.Decimal(14, 2)
+  novaDataFim        DateTime?
+  notaEmpenho        String?
+  dataReforcoEmpenho DateTime?
+  dataAssinatura     DateTime  @default(now())
+  objeto             String?
+
+  criadoEm           DateTime  @default(now())
 
   @@map("contrato_aditivos")
 }
@@ -210,6 +305,7 @@ model CategoriaServico {
   nome      String    @unique
   descricao String?
   icone     String?
+  ativo     Boolean   @default(true)
 
   tipos     TipoServico[]
 
@@ -223,6 +319,7 @@ model TipoServico {
   nome                String
   descricao           String?
   prazoEstimadoHoras  Int              @default(72)
+  ativo               Boolean          @default(true)
 
   chamados            Chamado[]
 
@@ -233,8 +330,11 @@ model TipoAmbiente {
   id        Int       @id @default(autoincrement())
   nome      String    @unique
   descricao String?
+  ativo     Boolean   @default(true)
 
+  sublocais Sublocal[]
   chamados  Chamado[]
+  agendasDemandas AgendaDemanda[]
 
   @@map("tipos_ambientes")
 }
@@ -242,19 +342,42 @@ model TipoAmbiente {
 model FraseUrgencia {
   id            Int       @id @default(autoincrement())
   frase         String    @unique
+  nivelCodigo   String    @default("NORMAL")
   nivelSugerido Int       @default(3) // 1=Crítico a 5=Planejado
   peso          Int       @default(1)
+  ordemExibicao      Int       @default(1)
+  prazoHorasCorridas Int?
+  prazoDiasUteis     Int?
+  exigeData          Boolean   @default(false)
+  ativo              Boolean   @default(true)
 
   chamados      Chamado[]
 
   @@map("frases_urgencias")
 }
 
+model NivelUrgencia {
+  id                   Int     @id @default(autoincrement())
+  codigo               String  @unique // EMERGENCIA, ALTA, NORMAL, BAIXA, PLANEJADA
+  nome                 String
+  ordem                Int
+  prazoHorasCorridas   Int?
+  prazoDiasUteis       Int?
+  usaDataEsperada      Boolean @default(false)
+  selecionavelPorFrase Boolean @default(true)
+
+  @@map("niveis_urgencias")
+}
+
 model TabelaReferencia {
   id             String          @id @default(uuid())
-  nome           String          // Ex: SINAPI-RN, TABELA_PROPRIAD_UERN
-  versao         String          // Ex: 2026/01
-  vigenciaInicio DateTime
+  nome           String          // Ex: SINAPI-RN, TABELA_PROPRIA_UERN
+  versao         String?         // Ex: 2026/01
+  competencia    DateTime?
+  uf             String          @default("RN")
+  desonerado     Boolean         @default(false)
+  bdiPercentual  Decimal?        @db.Decimal(6, 3)
+  vigenciaInicio DateTime?
   vigenciaFim    DateTime?
   ativa          Boolean         @default(true)
 
@@ -266,15 +389,18 @@ model TabelaReferencia {
 }
 
 model ItemReferencia {
-  id             String           @id @default(uuid())
-  tabelaId       String
-  tabela         TabelaReferencia @relation(fields: [tabelaId], references: [id], onDelete: Cascade)
-  codigo         String
-  descricao      String
-  unidadeMedida  String           // m², m, un, vb, etc
-  precoUnitario  Decimal          @db.Decimal(12, 2)
+  id                    String           @id @default(uuid())
+  tabelaId              String
+  tabela                TabelaReferencia @relation(fields: [tabelaId], references: [id], onDelete: Cascade)
+  codigo                String
+  descricao             String           @db.Text
+  unidadeMedida         String           // m², m, un, vb, etc
+  precoUnitario         Decimal          @db.Decimal(12, 2)
+  status                String           @default("HOMOLOGADO") // HOMOLOGADO, PENDENTE_HOMOLOGACAO, REJEITADO
+  usos                  Int              @default(0)
+  justificativaReversao String?          @db.Text
 
-  insumos        ChamadoInsumo[]
+  insumos               ChamadoInsumo[]
 
   @@unique([tabelaId, codigo])
   @@map("itens_referencias")
@@ -296,6 +422,9 @@ model Chamado {
   predioId           String?
   predio             CidadePredio?      @relation(fields: [predioId], references: [id])
 
+  sublocalId         String?
+  sublocal           Sublocal?          @relation(fields: [sublocalId], references: [id])
+
   tipoAmbienteId     Int
   tipoAmbiente       TipoAmbiente       @relation(fields: [tipoAmbienteId], references: [id])
 
@@ -311,6 +440,21 @@ model Chamado {
   empresaId          String?
   empresa            Empresa?           @relation(fields: [empresaId], references: [id])
 
+  // Mão de obra e funcionário alocado
+  maoObra            String?            // "FIXA" | "EVENTUAL"
+  funcionarioId      String?
+  funcionario        FuncionarioEmpresa? @relation(fields: [funcionarioId], references: [id])
+  tempoExecucaoHoras Decimal?           @db.Decimal(6, 2)
+  execucaoEmergencial Boolean           @default(false)
+
+  // Deslocamento de mão de obra residente para outras sedes/campi
+  houveDeslocamento          Boolean            @default(false)
+  diasDeslocamento           Int?               @default(0)
+  valorDiariaUnitario        Decimal?           @db.Decimal(10, 2)
+  valorTotalDiarias          Decimal?           @db.Decimal(12, 2)
+  justificativaDeslocamento  String?            @db.Text
+  trabalhadorDeslocado       String?
+
   dataEsperada       DateTime?
   prazoLimite        DateTime?
   abertoEm           DateTime           @default(now())
@@ -321,16 +465,21 @@ model Chamado {
 
   valorOrcado        Decimal?           @db.Decimal(12, 2)
   valorAutorizado    Decimal?           @db.Decimal(12, 2)
+  totalPrevisto      Decimal?           @db.Decimal(12, 2)
+  totalExecutado     Decimal?           @db.Decimal(12, 2)
   justificativaRecusa String?           @db.Text
 
-  // Avaliação do demandante
+  // Avaliação do demandante & Garantia
   avaliacaoNota      Int?
   avaliacaoComentario String?          @db.Text
+  avaliacaoTacita    Boolean            @default(false)
   ocorrenciasGarantia String?          @db.Text
+  retrabalho         Boolean            @default(false)
 
   fotos              ChamadoFoto[]
   insumos            ChamadoInsumo[]
   autorizacoes       ChamadoAutorizacao[]
+  timeline           ChamadoTimeline[]
 
   criadoEm           DateTime           @default(now())
   atualizadoEm       DateTime           @updatedAt
@@ -342,8 +491,9 @@ model ChamadoFoto {
   id           String    @id @default(uuid())
   chamadoId    String
   chamado      Chamado   @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
-  url          String
+  url          String    @db.Text
   tipo         TipoFoto  @default(ANTES) // ANTES, DEPOIS, COMPROVANTE
+  rodada       Int       @default(1)
   sha256       String?   // Prevenção de fotos duplicadas/falsas
   ordem        Int       @default(1)
 
@@ -373,27 +523,73 @@ model ChamadoInsumo {
 }
 
 model ChamadoAutorizacao {
-  id            String   @id @default(uuid())
-  chamadoId     String
-  chamado       Chamado  @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
-  usuarioId     String
-  usuario       Usuario  @relation(fields: [usuarioId], references: [id])
+  id               String   @id @default(uuid())
+  chamadoId        String
+  chamado          Chamado  @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+  usuarioId        String
+  usuario          Usuario  @relation(fields: [usuarioId], references: [id])
 
-  parecer       String?  @db.Text
-  aprovado      Boolean
-  valorAprovado Decimal? @db.Decimal(12, 2)
-  dataDecisao   DateTime @default(now())
+  decisao          String   @default("AUTORIZADO") // AUTORIZADO, RECUSADO
+  parecer          String?  @db.Text
+  justificativa    String?  @db.Text
+  aprovado         Boolean
+  ratificacao      Boolean  @default(false)
+  valorChamado     Decimal? @db.Decimal(12, 2)
+  valorAgregado30d Decimal? @db.Decimal(12, 2)
+  valorAprovado    Decimal? @db.Decimal(12, 2)
+  dataDecisao      DateTime @default(now())
 
   @@map("chamados_autorizacoes")
 }
 
+model ChamadoTimeline {
+  id          String        @id @default(uuid())
+  chamadoId   String
+  chamado     Chamado       @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+  statusNovo  StatusChamado
+  responsavel String
+  usuarioId   String?
+  papel       String?
+  observacao  String?       @db.Text
+  criadoEm    DateTime      @default(now())
+
+  @@map("chamados_timeline")
+}
+
 model Feriado {
   id          String   @id @default(uuid())
-  data        DateTime @unique
+  data        DateTime
   descricao   String
-  abrangencia String   @default("NACIONAL")
+  abrangencia String   @default("NACIONAL") // NACIONAL, ESTADUAL, MUNICIPAL, UERN
+  municipio   String?
+  ano         Int?
+  criadoEm    DateTime @default(now())
 
   @@map("feriados")
+}
+
+model Sublocal {
+  id             String        @id @default(uuid())
+  nome           String        // Ex: "Sala de Aula A4", "Laboratório de Ginecologia", "Sala Multiuso II"
+  descricao      String?       // Informações adicionais de localização (ex: "Bloco B, 1º Andar")
+
+  unidadeId      String
+  unidade        Unidade       @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  predioId       String?
+  predio         CidadePredio? @relation(fields: [predioId], references: [id], onDelete: SetNull)
+
+  tipoAmbienteId Int
+  tipoAmbiente   TipoAmbiente  @relation(fields: [tipoAmbienteId], references: [id])
+
+  ativo          Boolean       @default(true)
+  criadoEm       DateTime      @default(now())
+  atualizadoEm   DateTime      @updatedAt
+
+  chamados        Chamado[]
+  agendasDemandas AgendaDemanda[]
+
+  @@map("sublocais_unidades")
 }
 
 model ParametroSistema {
@@ -401,6 +597,248 @@ model ParametroSistema {
   chave     String   @unique
   valor     String
   descricao String?
+  origem    String?  @default("ESPEC")
 
   @@map("parametros_sistema")
+}
+
+// =========================================================================
+// MÓDULO: AGENDA DE SERVIÇOS PROGRAMADOS (SERVIÇOS EVENTUAIS DE MAIOR VULTO)
+// =========================================================================
+
+enum StatusAgenda {
+  ABERTA_COLETA
+  EM_CONSOLIDACAO_PROAD
+  RATIFICADA_REITORIA
+  EM_EXECUCAO
+  CONCLUIDA
+}
+
+enum StatusDemandaAgenda {
+  SUBMETIDA
+  APROVADA_PROAD
+  RECUSADA_PROAD
+  ENVIADA_EMPRESA
+  PROPOSTA_EM_ANALISE
+  EM_DILIGENCIA
+  AGUARDANDO_SOBE
+  CONTESTADA_UERN
+  AUTORIZADA
+  EM_EXECUCAO
+  AGUARDANDO_ACEITE_UNIDADE
+  EM_CORRECAO_EMPRESA
+  CONCLUIDA
+  CANCELADA
+}
+
+enum RegimeMaoObraAgenda {
+  EVENTUAL
+  FIXA_RESIDENTE
+}
+
+model AgendaServico {
+  id                      String              @id @default(uuid())
+  numeroSequencial        Int                 @default(autoincrement())
+  titulo                  String              // Ex: "Agenda Setembro-Outubro 2026"
+  descricao               String?             @db.Text
+  anoReferencia           Int
+  periodoInicioColeta     DateTime
+  periodoFimColeta        DateTime
+  valorTotalDisponivel    Decimal             @db.Decimal(12, 2)
+  cotaPadraoUnidade       Decimal             @db.Decimal(12, 2) @default(25000.00)
+  maxDemandasPadrao       Int                 @default(2)
+  status                  StatusAgenda        @default(ABERTA_COLETA)
+
+  // Ratificação do Gabinete da Reitoria (Trâmite formal via sistema)
+  dataRatificacaoReitoria DateTime?
+  ratificadoPorNome       String?
+
+  criadoPorId             String
+  criadoPor               Usuario             @relation("AgendaCriadaPor", fields: [criadoPorId], references: [id])
+  criadoEm                DateTime            @default(now())
+  atualizadoEm            DateTime            @updatedAt
+
+  cotasUnidades           AgendaUnidadeCota[]
+  demandas                AgendaDemanda[]
+
+  @@map("agendas_servicos")
+}
+
+model AgendaUnidadeCota {
+  id             String        @id @default(uuid())
+  agendaId       String
+  agenda         AgendaServico @relation(fields: [agendaId], references: [id], onDelete: Cascade)
+  unidadeId      String
+  unidade        Unidade       @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  cotaValor      Decimal       @db.Decimal(12, 2) // Cota exclusiva desta unidade para este ciclo
+  maxDemandas    Int           @default(2)
+
+  criadoEm       DateTime      @default(now())
+  atualizadoEm   DateTime      @updatedAt
+
+  @@unique([agendaId, unidadeId])
+  @@map("agendas_unidades_cotas")
+}
+
+model AgendaDemanda {
+  id                    String              @id @default(uuid())
+  numero                Int                 @default(autoincrement())
+  agendaId              String
+  agenda                AgendaServico       @relation(fields: [agendaId], references: [id], onDelete: Cascade)
+  unidadeId             String
+  unidade               Unidade             @relation(fields: [unidadeId], references: [id])
+  criadoPorId           String
+  criadoPor             Usuario             @relation("AgendaDemandaCriadaPor", fields: [criadoPorId], references: [id])
+
+  predioId              String?
+  predio                CidadePredio?       @relation(fields: [predioId], references: [id])
+  sublocalId            String?
+  sublocal              Sublocal?           @relation(fields: [sublocalId], references: [id])
+  ambienteId            Int?
+  ambiente              TipoAmbiente?       @relation(fields: [ambienteId], references: [id])
+  localizacaoDetalhada  String?
+
+  titulo                String              @default("Demanda de Serviço Programado")
+  descricaoProblema     String              @db.Text
+  justificativa         String              @db.Text
+  estimativaDemandante  Decimal?            @db.Decimal(12, 2)
+
+  status                StatusDemandaAgenda @default(SUBMETIDA)
+
+  // Tramitação da PROAD
+  analiseProadEm        DateTime?
+  analiseProadPorNome   String?
+  justificativaProad    String?             @db.Text
+
+  // Prazos em Dias Úteis (com base no calendário de feriados UERN/RN/Nacional)
+  dataEnvioEmpresa      DateTime?           // Início da contagem dos 15 dias úteis de proposta
+  prazoLimiteProposta   DateTime?           // dataEnvioEmpresa + 15 dias úteis
+  dataSubmissaoProposta DateTime?
+
+  dataAutorizacaoUern   DateTime?           // Início da contagem da execução e provisionamento
+  autorizadoPorNome     String?
+  prazoExecucaoDias     Int?                // Dias úteis estipulados na proposta e homologados
+  dataLimiteExecucao    DateTime?           // dataAutorizacaoUern + prazoExecucaoDias úteis
+  dataConclusaoEmpresa  DateTime?
+  relatorioExecucao     String?             @db.Text
+
+  // Aceite da Unidade (5 dias úteis)
+  dataEnvioAceiteUnidade DateTime?
+  prazoLimiteAceite      DateTime?          // dataEnvioAceiteUnidade + 5 dias úteis
+  dataAceiteUnidade      DateTime?
+  aprovadoUnidade        Boolean?
+  motivoReprovacao       String?            @db.Text
+  dataLimiteCorrecao     DateTime?          // dataReprovacao + 5 dias úteis
+
+  // Relações
+  proposta              AgendaProposta?
+  fotos                 AgendaDemandaFoto[]
+  timeline              AgendaDemandaTimeline[]
+  diligencias           AgendaDiligencia[]
+  pareceresSobe         AgendaParecerSobe[]
+
+  criadoEm              DateTime            @default(now())
+  atualizadoEm          DateTime            @updatedAt
+
+  @@map("agendas_demandas")
+}
+
+model AgendaDemandaFoto {
+  id          String        @id @default(uuid())
+  demandaId   String
+  demanda     AgendaDemanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  tipo        TipoFoto      @default(ANTES) // ANTES, DEPOIS, COMPROVANTE
+  url         String        @db.Text
+  descricao   String?
+  criadoEm    DateTime      @default(now())
+
+  @@map("agendas_demandas_fotos")
+}
+
+model AgendaProposta {
+  id                      String              @id @default(uuid())
+  demandaId               String              @unique
+  demanda                 AgendaDemanda       @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+
+  // Responsabilidade Técnica
+  responsavelTecnicoNome  String
+  registroProfissional    String              // CREA / CAU
+  artNumero               String
+  artArquivoUrl           String?
+
+  // Prazos e Mão de Obra
+  prazoExecucaoDias       Int
+  regimeMaoObra           RegimeMaoObraAgenda @default(EVENTUAL)
+  justificativaMaoObra    String?             @db.Text // Obrigatório caso opte por FIXA_RESIDENTE
+  aprovacaoMaoObraFixa    Boolean?
+
+  // Valores Orçados e Homologados
+  valorTotalProposto      Decimal             @db.Decimal(12, 2)
+  valorContestadoUern     Decimal?            @db.Decimal(12, 2)
+  valorFinalHomologado    Decimal?            @db.Decimal(12, 2)
+  motivoContestacao       String?             @db.Text
+
+  itens                   AgendaPropostaItem[]
+  criadoEm                DateTime            @default(now())
+  atualizadoEm            DateTime            @updatedAt
+
+  @@map("agendas_propostas")
+}
+
+model AgendaPropostaItem {
+  id                String          @id @default(uuid())
+  propostaId        String
+  proposta          AgendaProposta  @relation(fields: [propostaId], references: [id], onDelete: Cascade)
+  fonteReferencia   String          // "SINAPI", "ORSE", "SEINFRA", "SICRO", "COTACAO_MERCADO"
+  codigoItem        String?
+  descricao         String
+  unidadeMedida     String
+  quantidade        Decimal         @db.Decimal(10, 2)
+  valorUnitario     Decimal         @db.Decimal(12, 2)
+  valorTotal        Decimal         @db.Decimal(12, 2)
+  anexoCotacoesUrl  String?         // Arquivo com as 3 cotações de fornecedores se for mercado
+
+  @@map("agendas_propostas_itens")
+}
+
+model AgendaDiligencia {
+  id                    String        @id @default(uuid())
+  demandaId             String
+  demanda               AgendaDemanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  solicitanteNome       String
+  solicitanteRole       String
+  descricaoDiligencia   String        @db.Text
+  respostaContratada    String?       @db.Text
+  respondidoEm          DateTime?
+  criadoEm              DateTime      @default(now())
+
+  @@map("agendas_diligencias")
+}
+
+model AgendaParecerSobe {
+  id                String        @id @default(uuid())
+  demandaId         String
+  demanda           AgendaDemanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  solicitanteNome   String
+  tecnicoSobeId     String?
+  tecnicoSobe       Usuario?      @relation(fields: [tecnicoSobeId], references: [id])
+  tecnicoSobeNome   String?
+  parecerTexto      String        @db.Text
+  favoravel         Boolean       @default(true)
+  arquivoAnexoUrl   String?
+  criadoEm          DateTime      @default(now())
+
+  @@map("agendas_pareceres_sobe")
+}
+
+model AgendaDemandaTimeline {
+  id          String              @id @default(uuid())
+  demandaId   String
+  demanda     AgendaDemanda       @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  statusNovo  StatusDemandaAgenda
+  responsavel String
+  observacao  String?             @db.Text
+  criadoEm    DateTime            @default(now())
+
+  @@map("agendas_demandas_timeline")
 }

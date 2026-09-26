@@ -16,22 +16,29 @@ import {
   ShieldCheck,
   HardHat,
   CalendarCheck,
+  Sliders,
+  DoorOpen,
+  FileCheck,
 } from 'lucide-react';
 
 interface SidebarProps {
-  role: string;
+  role?: string;
+  userRole?: string;
+  userName?: string;
 }
 
-export default function Sidebar({ role }: SidebarProps) {
+export default function Sidebar({ role, userRole }: SidebarProps) {
   const pathname = usePathname();
+  const effectiveRole = role || userRole || '';
 
-  const isAdmin = role === 'ADMIN';
-  const isGestor = role === 'GESTOR_CONTRATO';
-  const isFiscalTecnico = role === 'FISCAL_TECNICO';
-  const isFiscalAdm = role === 'FISCAL_ADM';
-  const isFiscalSetorial = role === 'FISCAL_SETORIAL';
-  const isDemandante = role === 'DEMANDANTE';
-  const isEmpresa = role === 'EMPRESA';
+  const isAdmin = effectiveRole === 'ADMIN';
+  const isGestor = effectiveRole === 'GESTOR_CONTRATO';
+  const isFiscalTecnico = effectiveRole === 'FISCAL_TECNICO';
+  const isFiscalAdm = effectiveRole === 'FISCAL_ADM';
+  const isFiscalSetorial = effectiveRole === 'FISCAL_SETORIAL';
+  const isGestorUnidade = effectiveRole === 'GESTOR_UNIDADE';
+  const isDemandante = effectiveRole === 'DEMANDANTE';
+  const isEmpresa = effectiveRole === 'EMPRESA';
 
   const isGestaoOrFiscal = isAdmin || isGestor || isFiscalTecnico || isFiscalAdm;
 
@@ -46,13 +53,25 @@ export default function Sidebar({ role }: SidebarProps) {
       name: 'Abrir Chamado',
       href: '/chamados/novo',
       icon: PlusCircle,
-      visible: isDemandante || isFiscalSetorial || isAdmin,
+      visible: isDemandante || isGestorUnidade || isFiscalSetorial || isAdmin,
     },
     {
-      name: isDemandante ? 'Meus Chamados' : isEmpresa ? 'Fila da Empresa' : 'Todos os Chamados',
+      name: isDemandante || isGestorUnidade ? 'Meus Chamados' : isEmpresa ? 'Fila da Empresa' : 'Todos os Chamados',
       href: '/chamados',
       icon: Wrench,
       visible: true,
+    },
+    {
+      name: 'Agenda de Serviços',
+      href: '/agendas',
+      icon: CalendarCheck,
+      visible: true,
+    },
+    {
+      name: 'Sublocais da Unidade',
+      href: '/unidades/sublocais',
+      icon: DoorOpen,
+      visible: isGestorUnidade || isAdmin,
     },
     {
       name: 'Fila de Decisões',
@@ -91,9 +110,21 @@ export default function Sidebar({ role }: SidebarProps) {
       visible: isAdmin || isFiscalTecnico,
     },
     {
+      name: 'Catálogo & Prazos',
+      href: '/configuracoes/catalogo',
+      icon: Sliders,
+      visible: isAdmin || isFiscalTecnico,
+    },
+    {
       name: 'Relatórios & Indicadores',
       href: '/relatorios',
       icon: BarChart3,
+      visible: isGestaoOrFiscal || isFiscalSetorial,
+    },
+    {
+      name: 'Prestação de Contas (TCE)',
+      href: '/relatorios/execucao',
+      icon: FileCheck,
       visible: isGestaoOrFiscal || isFiscalSetorial,
     },
   ];
