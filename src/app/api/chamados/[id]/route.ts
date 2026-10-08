@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth';
 import { calcularEstadoPrazo } from '@/lib/services/prazos';
 import { verificarAlcadaOrcamentaria } from '@/lib/services/alcada';
 import { verificarSaldoParaOrcamento } from '@/lib/services/contrato';
+import { reservarSaldoOsNoSgc, enviarMedicaoAoSgc } from '@/lib/services/sgcIntegration';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,7 +71,7 @@ export async function PATCH(req: Request, { params }: RouteContext) {
 
     const chamado = await prisma.chamado.findUnique({
       where: { id: params.id },
-      include: { tipoServico: true, fotos: true },
+      include: { tipoServico: true, fotos: true, unidade: true },
     });
 
     if (!chamado) {
@@ -481,11 +482,21 @@ export async function PATCH(req: Request, { params }: RouteContext) {
         return c;
       });
 
+      // Sincronização automática com a esteira de Medições do SGC
+      if (aceitar && Number(totalExecutadoFinal) > 0) {
+        enviarMedicaoAoSgc({
+          numeroOs: `OS-UERN-${String(chamado.numero).padStart(4, '0')}/${new Date().getFullYear()}`,
+          valorMedido: Number(totalExecutadoFinal),
+          processoSeiDespesa: '23077.014298/2025-11',
+          referenciaMesAno: `${String(new Date().getMonth() + 1).padStart(2, '0')}/${new Date().getFullYear()}`,
+        }).catch((err) => console.error('[SGC Interop] Falha ao sincronizar medição:', err));
+      }
+
       return NextResponse.json({
         success: true,
         chamado: atualizado,
         mensagem: aceitar
-          ? 'Serviço aceito com sucesso! O chamado entrou em período de garantia e o valor executado foi liquidado.'
+          ? 'Serviço aceito com sucesso! O chamado entrou em período de garantia e a medição foi transmitida ao SGC para liquidação.'
           : 'Chamado devolvido à empresa para correções.',
       });
     }
@@ -541,6 +552,26 @@ export async function PATCH(req: Request, { params }: RouteContext) {
         }
       }
 
+      let osSgcEmitida: any = null;
+      if (autorizar && chamado.valorOrcado && Number(chamado.valorOrcado) > 0) {
+        const resSgc = await reservarSaldoOsNoSgc({
+          numeroOs: `OS-UERN-${String(chamado.numero).padStart(4, '0')}/${new Date().getFullYear()}`,
+          descricaoServico: `Chamado nº ${chamado.numero}: ${chamado.setorEspecifico || ''} - ${chamado.descricao?.slice(0, 100) || 'Manutenção Predial'}`,
+          valorEstimado: Number(chamado.valorOrcado),
+          autorizadoPorNome: session.nome,
+          autorizadoPorEmail: session.email,
+          origemChamadoId: chamado.numero,
+          unidadeDemandante: (chamado as any).unidade?.sigla || (chamado as any).unidade?.nome,
+        });
+
+        if (!resSgc.sucesso && resSgc.status === 422) {
+          return NextResponse.json({
+            error: `Bloqueio no SGC: ${resSgc.erro}`,
+          }, { status: 422 });
+        }
+        osSgcEmitida = resSgc.ordemServico;
+      }
+
       const novoStatus = autorizar ? 'AUTORIZADO' : 'RECUSADO';
 
       const atualizado = await prisma.$transaction(async (tx) => {
@@ -572,7 +603,7 @@ export async function PATCH(req: Request, { params }: RouteContext) {
             statusNovo: novoStatus,
             responsavel: session.nome,
             observacao: autorizar
-              ? `Orçamento autorizado pela fiscalização. Liberado para execução e provisionado no contrato.`
+              ? `Orçamento autorizado pela fiscalização. Liberado para execução e provisionado no contrato SGC${osSgcEmitida ? ` (${osSgcEmitida.numeroOs})` : ''}.`
               : `Orçamento recusado pela fiscalização. Justificativa: ${justificativa}`,
           },
         });

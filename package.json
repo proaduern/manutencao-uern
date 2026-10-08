@@ -4,7 +4,7 @@
   "description": "Sistema de Gestão de Manutenção Predial da UERN - Next.js, Prisma e Neon Postgres",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3003",
     "build": "prisma generate && next build",
     "postinstall": "prisma generate",
     "start": "next start",

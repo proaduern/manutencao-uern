@@ -12,10 +12,12 @@ const PUBLIC_ROUTES = ['/login', '/primeiro-acesso'];
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Permitir arquivos estáticos, rotas internas do Next.js e favicon
+  // Permitir arquivos estáticos, rotas internas do Next.js, callback de SSO e rotas de integração
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/auth/login') ||
+    pathname.startsWith('/api/auth/sso-callback') ||
+    pathname.startsWith('/api/integracao') ||
     pathname.includes('/favicon.ico') ||
     pathname.startsWith('/public')
   ) {
