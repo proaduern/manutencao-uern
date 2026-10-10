@@ -1,15 +1,32 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Wrench, Shield, Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
+
+  useEffect(() => {
+    const errorParam = searchParams.get('error');
+    const detalheParam = searchParams.get('detalhe');
+    if (errorParam === 'falha_autenticacao_sso') {
+      setErro(
+        detalheParam
+          ? `Falha na autenticação via SSO (${decodeURIComponent(detalheParam)}). Por favor, informe seu e-mail e senha.`
+          : 'Falha na autenticação via SSO do Portal PROAD. Por favor, tente novamente ou entre com suas credenciais.'
+      );
+    } else if (errorParam === 'token_ausente') {
+      setErro('Token de autorização não informado.');
+    } else if (errorParam === 'token_invalido_destino') {
+      setErro('O token informado não é válido para o Sistema de Manutenção.');
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +58,71 @@ export default function LoginPage() {
     }
   };
 
+  return (
+    <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Acessar o Sistema</h2>
+        <p className="text-sm text-slate-500 mt-1">
+          Informe seu e-mail institucional cadastrado pela PROAD.
+        </p>
+      </div>
+
+      {erro && (
+        <div className="mb-5 p-3.5 bg-rose-50 border border-rose-200 rounded-lg flex items-start space-x-2.5 text-xs text-rose-700">
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+          <span>{erro}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+            E-mail Institucional
+          </label>
+          <div className="relative">
+            <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+            <input
+              type="email"
+              required
+              placeholder="usuario@uern.br"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#003366] focus:border-transparent transition-all"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+            Senha
+          </label>
+          <div className="relative">
+            <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+            <input
+              type="password"
+              required
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#003366] focus:border-transparent transition-all"
+            />
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={carregando}
+          className="w-full mt-2 py-2.5 px-4 bg-[#003366] hover:bg-[#002244] text-white font-medium text-sm rounded-lg shadow-sm flex items-center justify-center space-x-2 transition-colors disabled:opacity-50"
+        >
+          <span>{carregando ? 'Entrando...' : 'Entrar no Sistema'}</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
+      </form>
+    </div>
+  );
+}
+
+export default function LoginPage() {
   return (
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-12 bg-slate-50">
       {/* Banner Institucional UERN */}
@@ -88,66 +170,9 @@ export default function LoginPage() {
 
       {/* Formulário de Acesso */}
       <div className="md:col-span-6 lg:col-span-5 flex items-center justify-center p-6 md:p-12">
-        <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Acessar o Sistema</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Informe seu e-mail institucional cadastrado pela PROAD.
-            </p>
-          </div>
-
-          {erro && (
-            <div className="mb-5 p-3.5 bg-rose-50 border border-rose-200 rounded-lg flex items-start space-x-2.5 text-xs text-rose-700">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
-              <span>{erro}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                E-mail Institucional
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
-                <input
-                  type="email"
-                  required
-                  placeholder="usuario@uern.br"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#003366] focus:border-transparent transition-all"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                Senha
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#003366] focus:border-transparent transition-all"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={carregando}
-              className="w-full mt-2 py-2.5 px-4 bg-[#003366] hover:bg-[#002244] text-white font-medium text-sm rounded-lg shadow-sm flex items-center justify-center space-x-2 transition-colors disabled:opacity-50"
-            >
-              <span>{carregando ? 'Entrando...' : 'Entrar no Sistema'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-        </div>
+        <Suspense fallback={<div className="p-8 text-center text-slate-400 text-sm">Carregando formulário...</div>}>
+          <LoginForm />
+        </Suspense>
       </div>
     </div>
   );

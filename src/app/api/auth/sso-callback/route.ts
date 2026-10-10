@@ -1,14 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify } from 'jose';
 import prisma from '@/lib/prisma';
-import { createSessionToken, setSessionCookie } from '@/lib/auth';
+import { createSessionToken } from '@/lib/auth';
 import { Role } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
-const PROAD_SSO_SECRET = new TextEncoder().encode(
-  process.env.PROAD_SSO_SECRET || 'uern_portal_proad_sso_master_key_2026_super_seguro'
-);
+const COOKIE_NAME = 'manutencao_uern_token';
+
+// Suporte a múltiplas chaves mestras e chaves de ambiente para resiliência no Vercel
+const SECRET_KEYS: Uint8Array[] = [
+  process.env.PROAD_SSO_SECRET,
+  process.env.JWT_SECRET,
+  'uern_portal_proad_sso_master_key_2026_super_seguro',
+  'uern_manutencao_segredo_jwt_proad_2026_super_seguro',
+]
+  .filter((k): k is string => Boolean(k && k.trim()))
+  .map((k) => new TextEncoder().encode(k.trim()));
+
+async function verificarTokenComFallback(token: string) {
+  let ultimoErro: any = null;
+  for (const secretKey of SECRET_KEYS) {
+    try {
+      const { payload } = await jwtVerify(token, secretKey);
+      return payload;
+    } catch (err) {
+      ultimoErro = err;
+    }
+  }
+  throw ultimoErro || new Error('Falha ao verificar assinatura JWT do token SSO.');
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,8 +40,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/login?error=token_ausente', request.url));
     }
 
-    // 1. Valida token emitido pelo Portal Central PROAD
-    const { payload } = await jwtVerify(token, PROAD_SSO_SECRET);
+    // 1. Valida token emitido pelo Portal Central PROAD com chaves de fallback
+    const payload = await verificarTokenComFallback(token);
     const { email, nome, matricula, role, targetSystem, unidadeSigla } = payload as {
       userId?: string;
       email: string;
@@ -63,31 +84,36 @@ export async function GET(request: NextRequest) {
     let unidadeId: string | null = null;
     let unidadeNome: string | null = null;
     if (unidadeSigla) {
-      const unidadeDb = await prisma.unidade.findFirst({
-        where: {
-          OR: [
-            { sigla: { equals: unidadeSigla, mode: 'insensitive' } },
-            { codigo: { equals: unidadeSigla, mode: 'insensitive' } },
-          ],
-        },
-      });
-      if (unidadeDb) {
-        unidadeId = unidadeDb.id;
-        unidadeNome = unidadeDb.nome;
+      try {
+        const unidadeDb = await prisma.unidade.findFirst({
+          where: {
+            OR: [
+              { sigla: { equals: unidadeSigla, mode: 'insensitive' } },
+              { codigo: { equals: unidadeSigla, mode: 'insensitive' } },
+            ],
+          },
+        });
+        if (unidadeDb) {
+          unidadeId = unidadeDb.id;
+          unidadeNome = unidadeDb.nome;
+        }
+      } catch (errUnidade) {
+        console.warn('[SSO Manutenção] Aviso ao buscar unidade por sigla:', errUnidade);
       }
     }
 
     // 4. Localiza ou cria o usuário na base de Manutenção
+    const emailLimpo = email.toLowerCase().trim();
     let usuarioManut = await prisma.usuario.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: emailLimpo },
       include: { unidade: true },
     });
 
     if (!usuarioManut) {
       usuarioManut = await prisma.usuario.create({
         data: {
-          email: email.toLowerCase(),
-          nome: nome || email.split('@')[0],
+          email: emailLimpo,
+          nome: nome || emailLimpo.split('@')[0],
           matricula: matricula || null,
           role: manutRole,
           unidadeId: unidadeId,
@@ -126,13 +152,23 @@ export async function GET(request: NextRequest) {
       deveTrocarSenha: false,
     });
 
-    // 6. Define cookie seguro de sessão
-    await setSessionCookie(sessionToken);
+    // 6. Define cookie seguro de sessão DIRETAMENTE na resposta de redirecionamento (garantia serverless)
+    const redirectResponse = NextResponse.redirect(new URL('/', request.url));
+    redirectResponse.cookies.set(COOKIE_NAME, sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24, // 24h
+    });
 
-    // 7. Redireciona com sessão ativa para o painel principal
-    return NextResponse.redirect(new URL('/', request.url));
+    console.log(`[SSO Manutenção] Login com sucesso para ${emailLimpo} (${manutRole})`);
+    return redirectResponse;
   } catch (error: any) {
     console.error('Erro no callback de SSO do Manutenção:', error);
-    return NextResponse.redirect(new URL('/login?error=falha_autenticacao_sso', request.url));
+    const detalhe = encodeURIComponent(error?.message || 'erro_desconhecido');
+    return NextResponse.redirect(
+      new URL(`/login?error=falha_autenticacao_sso&detalhe=${detalhe}`, request.url)
+    );
   }
 }
