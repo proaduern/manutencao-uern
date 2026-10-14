@@ -3,6 +3,8 @@
  * Comunicação direta Server-to-Server com chave de serviço PROAD.
  */
 
+import prisma from '@/lib/prisma';
+
 const SGC_BASE_URL = process.env.SGC_URL || 'http://localhost:3000';
 const SERVICE_KEY = process.env.PROAD_SERVICE_KEY || 'proad_interop_internal_service_key_2026_uern';
 
@@ -149,3 +151,97 @@ export async function enviarMedicaoAoSgc(params: MedicaoParams) {
     };
   }
 }
+
+/**
+ * Importa ou atualiza os contratos de manutenção predial do SGC para o banco do sistema.
+ */
+export async function sincronizarContratosManutencaoComSgc(): Promise<{
+  importados: number;
+  atualizados: number;
+  detalhes: any[];
+}> {
+  const contratosSgc = await buscarContratosManutencaoSgc();
+  let importados = 0;
+  let atualizados = 0;
+  const detalhes: any[] = [];
+
+  for (const c of contratosSgc) {
+    if (!c.numeroContrato) continue;
+
+    // Extrair número e ano (ex: "Contrato nº 14/2025" -> numero: "14", ano: 2025)
+    const numStr = c.numeroContrato.replace(/[^0-9\/]/g, '').trim();
+    const partes = numStr.split('/');
+    const numero = partes[0] || '14';
+    const ano = partes[1] ? parseInt(partes[1], 10) : new Date().getFullYear();
+
+    // Garante a Empresa Contratada
+    let empresa = await prisma.empresa.findFirst({
+      where: {
+        OR: [
+          { cnpj: c.fornecedor.cnpj },
+          { razaoSocial: c.fornecedor.razaoSocial },
+        ],
+      },
+    });
+
+    if (!empresa) {
+      empresa = await prisma.empresa.create({
+        data: {
+          razaoSocial: c.fornecedor.razaoSocial,
+          cnpj: c.fornecedor.cnpj,
+          email: 'contato@fornecedor.com.br',
+          ativo: true,
+        },
+      });
+    }
+
+    const contratoExistente = await prisma.contrato.findUnique({
+      where: {
+        numero_ano: {
+          numero,
+          ano,
+        },
+      },
+    });
+
+    const dataInicio = new Date();
+    const dataFim = new Date();
+    dataFim.setFullYear(dataFim.getFullYear() + 1);
+
+    if (contratoExistente) {
+      await prisma.contrato.update({
+        where: { id: contratoExistente.id },
+        data: {
+          empresaId: empresa.id,
+          objeto: c.objeto || 'Serviços de Manutenção Predial',
+          valorTotal: c.valorAtualizado,
+          saldoDisponivel: c.saldoDisponivel,
+          ativo: true,
+        },
+      });
+      atualizados++;
+      detalhes.push({ numero: `${numero}/${ano}`, acao: 'ATUALIZADO' });
+    } else {
+      await prisma.contrato.create({
+        data: {
+          numero,
+          ano,
+          empresaId: empresa.id,
+          objeto: c.objeto || 'Serviços de Manutenção Predial',
+          dataInicio,
+          dataFim,
+          valorTotal: c.valorAtualizado,
+          saldoDisponivel: c.saldoDisponivel,
+          prazoGarantiaDias: 90,
+          mesesVigencia: 12,
+          ativo: true,
+        },
+      });
+      importados++;
+      detalhes.push({ numero: `${numero}/${ano}`, acao: 'IMPORTADO' });
+    }
+  }
+
+  return { importados, atualizados, detalhes };
+}
+

@@ -29,6 +29,7 @@ import {
   ChevronUp,
   Search,
   Filter,
+  RefreshCw,
 } from 'lucide-react';
 
 interface FuncionarioPosto {
@@ -57,6 +58,22 @@ export default function ContratosCotasPage() {
   const [empresas, setEmpresas] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
+  const [sincronizandoSgc, setSincronizandoSgc] = useState(false);
+
+  const handleSincronizarSgc = async () => {
+    setSincronizandoSgc(true);
+    try {
+      const res = await fetch('/api/integracao/sgc-contratos', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao sincronizar com o SGC');
+      setMensagem({ tipo: 'sucesso', texto: data.mensagem || 'Contratos sincronizados com o SGC com sucesso!' });
+      carregarDados();
+    } catch (err: any) {
+      setMensagem({ tipo: 'erro', texto: err.message });
+    } finally {
+      setSincronizandoSgc(false);
+    }
+  };
 
   const [abaAtiva, setAbaAtiva] = useState<'MAO_OBRA' | 'DEMANDA' | 'COTAS' | 'HISTORICO' | 'EMPRESAS'>('MAO_OBRA');
 
@@ -858,6 +875,17 @@ export default function ContratosCotasPage() {
                 >
                   <Building className="w-3.5 h-3.5" />
                   + Empresa
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSincronizarSgc}
+                  disabled={sincronizandoSgc}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg text-xs font-semibold border border-amber-300 transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
+                  title="Puxar contratos e saldos vigentes do SGC automaticamente"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-amber-700 ${sincronizandoSgc ? 'animate-spin' : ''}`} />
+                  <span>{sincronizandoSgc ? 'Sincronizando...' : 'Sincronizar com SGC'}</span>
                 </button>
 
                 <button
