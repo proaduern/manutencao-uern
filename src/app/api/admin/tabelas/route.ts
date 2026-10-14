@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getSession } from '@/lib/auth';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,44 +104,52 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, item });
     }
 
-    // 5. Carga de itens via JSON/CSV
+    // 5. Carga de itens via JSON/CSV/XLSX (Bulk Upsert de alta performance)
     if (acao === 'CARGA_ITENS') {
       if (!tabelaId || !Array.isArray(itens) || itens.length === 0) {
         return NextResponse.json({ error: 'Itens não informados para carga.' }, { status: 400 });
       }
 
-      let inseridos = 0;
-      for (const i of itens) {
-        const cod = i.codigo?.trim();
-        const desc = i.descricao?.trim();
-        const un = i.unidade?.trim() || 'un';
-        const val = parseFloat(i.valor);
+      const validItems = itens
+        .map((i: any) => ({
+          codigo: String(i.codigo || '').trim(),
+          descricao: String(i.descricao || '').trim(),
+          unidade: String(i.unidade || 'UN').trim(),
+          valor: typeof i.valor === 'number' ? i.valor : parseFloat(String(i.valor || '0').replace(',', '.')),
+        }))
+        .filter((i) => i.codigo && !isNaN(i.valor) && i.valor >= 0);
 
-        if (!cod || isNaN(val)) continue;
-
-        await prisma.itemReferencia.upsert({
-          where: { tabelaId_codigo: { tabelaId, codigo: cod } },
-          update: {
-            descricao: desc || cod,
-            unidadeMedida: un,
-            precoUnitario: val,
-            status: 'HOMOLOGADO',
-          },
-          create: {
-            tabelaId,
-            codigo: cod,
-            descricao: desc || cod,
-            unidadeMedida: un,
-            precoUnitario: val,
-            status: 'HOMOLOGADO',
-          },
-        });
-        inseridos++;
+      if (validItems.length === 0) {
+        return NextResponse.json({ error: 'Nenhum item com código e preço válido no lote.' }, { status: 400 });
       }
+
+      // Bulk upsert usando SQL nativo ultra-rápido com ON CONFLICT
+      const valuesSql = validItems
+        .map((it) => {
+          const id = crypto.randomUUID();
+          const desc = it.descricao.replace(/'/g, "''").slice(0, 500);
+          const cod = it.codigo.replace(/'/g, "''").slice(0, 100);
+          const un = it.unidade.replace(/'/g, "''").slice(0, 20);
+          return `('${id}', '${tabelaId}', '${cod}', '${desc}', '${un}', ${it.valor}, 'HOMOLOGADO', 0)`;
+        })
+        .join(', ');
+
+      const sql = `
+        INSERT INTO itens_referencias (id, "tabelaId", codigo, descricao, "unidadeMedida", "precoUnitario", status, usos)
+        VALUES ${valuesSql}
+        ON CONFLICT ("tabelaId", codigo) DO UPDATE
+        SET "precoUnitario" = EXCLUDED."precoUnitario",
+            descricao = EXCLUDED.descricao,
+            "unidadeMedida" = EXCLUDED."unidadeMedida",
+            status = 'HOMOLOGADO';
+      `;
+
+      await prisma.$executeRawUnsafe(sql);
 
       return NextResponse.json({
         success: true,
-        mensagem: `${inseridos} itens processados e homologados na tabela.`,
+        inseridos: validItems.length,
+        mensagem: `${validItems.length} itens gravados/atualizados com sucesso.`,
       });
     }
 

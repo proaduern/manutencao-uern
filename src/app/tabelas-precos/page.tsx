@@ -3,7 +3,24 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
-import { FileText, Plus, Upload, Save, Edit2, Trash2, AlertCircle, CheckCircle2, RotateCcw } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import {
+  FileText,
+  Plus,
+  Upload,
+  Save,
+  Edit2,
+  Trash2,
+  AlertCircle,
+  CheckCircle2,
+  RotateCcw,
+  FileSpreadsheet,
+  Layers,
+  Sparkles,
+  RefreshCw,
+  Check,
+  Table,
+} from 'lucide-react';
 
 export default function TabelasPrecosPage() {
   const [user, setUser] = useState<any>(null);
@@ -28,10 +45,27 @@ export default function TabelasPrecosPage() {
     precoUnitario: '',
   });
 
-  // Upload CSV
+  // Upload SINAPI / Excel / CSV em Lote
   const [tabelaDestinoId, setTabelaDestinoId] = useState('');
-  const [arquivoCsv, setArquivoCsv] = useState<File | null>(null);
-  const [carregandoCsv, setCarregandoCsv] = useState(false);
+  const [arquivoPlanilha, setArquivoPlanilha] = useState<File | null>(null);
+  const [nomeArquivo, setNomeArquivo] = useState('');
+  const [tamanhoArquivo, setTamanhoArquivo] = useState('');
+  const [planilhasWorkbook, setPlanilhasWorkbook] = useState<string[]>([]);
+  const [abaSelecionada, setAbaSelecionada] = useState('TODAS');
+  const [prefixarSinapi, setPrefixarSinapi] = useState(true);
+  const [itensParaImportar, setItensParaImportar] = useState<any[]>([]);
+  const [itensPrevia, setItensPrevia] = useState<any[]>([]);
+  const [lendoArquivo, setLendoArquivo] = useState(false);
+  const [importandoLotes, setImportandoLotes] = useState(false);
+  const [progressoLote, setProgressoLote] = useState<{
+    loteAtual: number;
+    totalLotes: number;
+    porcentagem: number;
+    itensGravados: number;
+    totalItens: number;
+  } | null>(null);
+  const [workbookInstancia, setWorkbookInstancia] = useState<any>(null);
+
   const [bdiInputs, setBdiInputs] = useState<Record<string, string>>({});
 
   const carregarDados = () => {
@@ -235,38 +269,224 @@ export default function TabelasPrecosPage() {
     }
   };
 
-  const processarCsv = async () => {
-    if (!arquivoCsv || !tabelaDestinoId) {
-      alert('Selecione o arquivo CSV e a tabela de destino.');
+  // Calcula o range real preenchido ignorando o limite de 1.048.576 linhas do Excel
+  const getRealRange = (sheet: any) => {
+    let maxR = 0;
+    let maxC = 0;
+    for (const k of Object.keys(sheet)) {
+      if (k.startsWith('!')) continue;
+      const coord = XLSX.utils.decode_cell(k);
+      if (coord.r > maxR) maxR = coord.r;
+      if (coord.c > maxC) maxC = coord.c;
+    }
+    return { s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } };
+  };
+
+  // Extrai itens de uma aba individual com mapeamento inteligente de colunas
+  const extrairItensDaAba = (sheet: any, nomeAba: string, devePrefixar: boolean): any[] => {
+    sheet['!ref'] = XLSX.utils.encode_range(getRealRange(sheet));
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (!rawRows || rawRows.length === 0) return [];
+
+    let headerRowIdx = -1;
+    let colCodigo = -1;
+    let colDesc = -1;
+    let colUnid = -1;
+    let colValor = -1;
+
+    for (let r = 0; r < Math.min(25, rawRows.length); r++) {
+      const row = rawRows[r].map((cell: any) => String(cell || '').toLowerCase().trim());
+      const idxCod = row.findIndex((c) => c.includes('código') || c.includes('codigo') || c === 'cod' || c === 'item');
+      const idxDesc = row.findIndex((c) => c.includes('descri') || c.includes('especifica'));
+      const idxUnid = row.findIndex((c) => c.includes('unidade') || c === 'unid' || c === 'un' || c === 'und');
+      // Filtra "origem de preço" para não capturar a coluna de origem ao invés do preço real
+      const idxVal = row.findIndex(
+        (c) =>
+          !c.includes('origem') &&
+          (c.includes('custo') ||
+            c.includes('valor') ||
+            c.includes('preço') ||
+            c.includes('preco') ||
+            c === 'rn' ||
+            c.includes('mediano') ||
+            c.includes('total'))
+      );
+
+      if (idxCod !== -1 && idxDesc !== -1) {
+        headerRowIdx = r;
+        colCodigo = idxCod;
+        colDesc = idxDesc;
+        colUnid = idxUnid;
+        colValor = idxVal;
+        break;
+      }
+    }
+
+    if (headerRowIdx === -1) {
+      headerRowIdx = 0;
+      colCodigo = 0;
+      colDesc = 1;
+      colUnid = 2;
+      colValor = 3;
+    }
+
+    const itensExtraidos: any[] = [];
+    const abaEhComposicao = nomeAba.toUpperCase().includes('CS') || nomeAba.toUpperCase().includes('COMP');
+    const prefixo = devePrefixar ? (abaEhComposicao ? 'SINAPI-COMP-' : 'SINAPI-') : '';
+
+    for (let r = headerRowIdx + 1; r < rawRows.length; r++) {
+      const row = rawRows[r];
+      if (!row || row.length === 0) continue;
+
+      const codRaw = String(row[colCodigo] ?? '').trim();
+      const descRaw = String(row[colDesc] ?? '').trim();
+      if (!codRaw || !descRaw) continue;
+
+      if (
+        codRaw.toLowerCase().includes('total') ||
+        codRaw.toLowerCase().includes('fonte') ||
+        descRaw.toLowerCase().startsWith('observa')
+      ) {
+        continue;
+      }
+
+      let unidRaw = colUnid !== -1 ? String(row[colUnid] ?? '').trim() : 'UN';
+      if (!unidRaw) unidRaw = 'UN';
+
+      let valorNum = 0;
+      const valCell = colValor !== -1 ? row[colValor] : 0;
+      if (typeof valCell === 'number') {
+        valorNum = valCell;
+      } else {
+        let s = String(valCell ?? '').trim().replace('R$', '').replace(/\s+/g, '');
+        if (s.includes(',')) {
+          s = s.replace(/\./g, '').replace(',', '.');
+        }
+        valorNum = parseFloat(s) || 0;
+      }
+
+      const codigoFinal = prefixo ? (codRaw.startsWith('SINAPI-') ? codRaw : `${prefixo}${codRaw}`) : codRaw;
+
+      itensExtraidos.push({
+        codigo: codigoFinal,
+        descricao: descRaw,
+        unidade: unidRaw.toUpperCase(),
+        valor: valorNum,
+        origemAba: nomeAba,
+      });
+    }
+
+    return itensExtraidos;
+  };
+
+  const extrairItensDoWorkbook = (wb: any, aba: string, prefixar: boolean) => {
+    if (!wb) return;
+    let todosItens: any[] = [];
+
+    const abasParaProcessar =
+      aba === 'TODAS'
+        ? wb.SheetNames.filter(
+            (name: string) =>
+              !name.toLowerCase().includes('leia') &&
+              !name.toLowerCase().includes('ajuda') &&
+              !name.toLowerCase().includes('macro')
+          )
+        : [aba];
+
+    for (const sheetName of abasParaProcessar) {
+      const sheet = wb.Sheets[sheetName];
+      if (!sheet) continue;
+      const itensAba = extrairItensDaAba(sheet, sheetName, prefixar);
+      todosItens = todosItens.concat(itensAba);
+    }
+
+    const mapa = new Map<string, any>();
+    for (const item of todosItens) {
+      if (!mapa.has(item.codigo)) {
+        mapa.set(item.codigo, item);
+      }
+    }
+
+    const itensFinais = Array.from(mapa.values());
+    setItensParaImportar(itensFinais);
+    setItensPrevia(itensFinais.slice(0, 5));
+  };
+
+  const handleCarregarArquivo = async (file: File) => {
+    if (!file) return;
+    setArquivoPlanilha(file);
+    setNomeArquivo(file.name);
+    setTamanhoArquivo((file.size / (1024 * 1024)).toFixed(2) + ' MB');
+    setLendoArquivo(true);
+    setMensagem(null);
+    setProgressoLote(null);
+
+    try {
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array' });
+      setWorkbookInstancia(wb);
+      setPlanilhasWorkbook(wb.SheetNames);
+
+      const abas = wb.SheetNames;
+      const temIsd = abas.includes('ISD');
+      const temCsd = abas.includes('CSD');
+      const abaPadrao = temIsd || temCsd ? 'TODAS' : abas[0];
+      setAbaSelecionada(abaPadrao);
+
+      extrairItensDoWorkbook(wb, abaPadrao, prefixarSinapi);
+    } catch (err: any) {
+      setMensagem({ tipo: 'erro', texto: 'Erro ao processar planilha: ' + err.message });
+    } finally {
+      setLendoArquivo(false);
+    }
+  };
+
+  const handleMudarAba = (novaAba: string) => {
+    setAbaSelecionada(novaAba);
+    if (workbookInstancia) {
+      extrairItensDoWorkbook(workbookInstancia, novaAba, prefixarSinapi);
+    }
+  };
+
+  const handleMudarPrefixo = (prefixar: boolean) => {
+    setPrefixarSinapi(prefixar);
+    if (workbookInstancia) {
+      extrairItensDoWorkbook(workbookInstancia, abaSelecionada, prefixar);
+    }
+  };
+
+  const executarImportacaoEmLote = async () => {
+    if (!tabelaDestinoId) {
+      alert('Selecione a tabela de destino.');
+      return;
+    }
+    if (!itensParaImportar || itensParaImportar.length === 0) {
+      alert('Nenhum item válido identificado para importação.');
       return;
     }
 
-    setCarregandoCsv(true);
-    const reader = new FileReader();
+    setImportandoLotes(true);
+    setMensagem(null);
 
-    reader.onload = async (e) => {
-      try {
-        const text = e.target?.result as string;
-        const linhas = text.split('\n');
-        const itensParaEnviar: any[] = [];
+    const TAMANHO_LOTE = 250;
+    const totalItens = itensParaImportar.length;
+    const totalLotes = Math.ceil(totalItens / TAMANHO_LOTE);
+    let gravadosAcumulado = 0;
 
-        for (let i = 1; i < linhas.length; i++) {
-          const l = linhas[i].trim();
-          if (!l) continue;
-          const partes = l.split(';');
-          if (partes.length >= 4) {
-            itensParaEnviar.push({
-              codigo: partes[0].trim(),
-              descricao: partes[1].trim(),
-              unidade: partes[2].trim(),
-              valor: partes[3].trim().replace(',', '.'),
-            });
-          }
-        }
+    try {
+      for (let i = 0; i < totalLotes; i++) {
+        const loteAtual = i + 1;
+        const inicio = i * TAMANHO_LOTE;
+        const fim = Math.min(inicio + TAMANHO_LOTE, totalItens);
+        const chunk = itensParaImportar.slice(inicio, fim);
 
-        if (itensParaEnviar.length === 0) {
-          throw new Error('Nenhum item válido identificado no arquivo.');
-        }
+        setProgressoLote({
+          loteAtual,
+          totalLotes,
+          porcentagem: Math.round((i / totalLotes) * 100),
+          itensGravados: gravadosAcumulado,
+          totalItens,
+        });
 
         const res = await fetch('/api/admin/tabelas', {
           method: 'POST',
@@ -274,24 +494,45 @@ export default function TabelasPrecosPage() {
           body: JSON.stringify({
             acao: 'CARGA_ITENS',
             tabelaId: tabelaDestinoId,
-            itens: itensParaEnviar,
+            itens: chunk.map((c) => ({
+              codigo: c.codigo,
+              descricao: c.descricao,
+              unidade: c.unidade,
+              valor: c.valor,
+            })),
           }),
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
+        if (!res.ok) {
+          throw new Error(`Erro no lote ${loteAtual}/${totalLotes}: ${data.error || 'Falha ao processar'}`);
+        }
 
-        setMensagem({ tipo: 'sucesso', texto: data.mensagem || 'Carga de CSV concluída com sucesso!' });
-        setArquivoCsv(null);
-        carregarDados();
-      } catch (err: any) {
-        setMensagem({ tipo: 'erro', texto: err.message });
-      } finally {
-        setCarregandoCsv(false);
+        gravadosAcumulado += data.gravados || chunk.length;
+
+        setProgressoLote({
+          loteAtual,
+          totalLotes,
+          porcentagem: Math.round(((i + 1) / totalLotes) * 100),
+          itensGravados: gravadosAcumulado,
+          totalItens,
+        });
       }
-    };
 
-    reader.readAsText(arquivoCsv);
+      setMensagem({
+        tipo: 'sucesso',
+        texto: `Carga concluída com sucesso! Total de ${gravadosAcumulado.toLocaleString('pt-BR')} itens salvos/atualizados no banco.`,
+      });
+      setItensParaImportar([]);
+      setItensPrevia([]);
+      setArquivoPlanilha(null);
+      setNomeArquivo('');
+      carregarDados();
+    } catch (err: any) {
+      setMensagem({ tipo: 'erro', texto: err.message });
+    } finally {
+      setImportandoLotes(false);
+    }
   };
 
   return (
@@ -396,23 +637,37 @@ export default function TabelasPrecosPage() {
             ))}
           </div>
 
-          {/* Bloco de Importação CSV */}
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-              <Upload className="w-5 h-5 text-indigo-700" />
-              Importação em Lote via Arquivo CSV (SINAPI ou Própria)
-            </h2>
-            <p className="text-xs text-slate-500">
-              Formato esperado (separado por ponto e vírgula): <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">codigo;descricao;unidade;preco</code>
-            </p>
+          {/* Bloco de Carga SINAPI e Tabelas de Referência em Lote */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b pb-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-indigo-700" />
+                  Carga em Lote SINAPI & Tabelas de Referência (.xlsx / .csv)
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Importe planilhas oficiais da CAIXA (SINAPI ISD/CSD) ou arquivos CSV. O processamento é particionado em lotes seguros para evitar sobrecarga.
+                </p>
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              {arquivoPlanilha && (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full border border-indigo-100">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    {itensParaImportar.length.toLocaleString('pt-BR')} itens identificados
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Tabela de Destino</label>
                 <select
                   value={tabelaDestinoId}
                   onChange={(e) => setTabelaDestinoId(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+                  disabled={importandoLotes}
+                  className="w-full px-3 py-2 border rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                 >
                   {tabelas.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -423,23 +678,138 @@ export default function TabelasPrecosPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Arquivo CSV</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Planilha Excel (.xlsx) ou CSV
+                </label>
                 <input
                   type="file"
-                  accept=".csv,.txt"
-                  onChange={(e) => setArquivoCsv(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                  accept=".xlsx,.xls,.csv,.txt"
+                  disabled={importandoLotes || lendoArquivo}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleCarregarArquivo(f);
+                  }}
+                  className="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 disabled:opacity-50"
                 />
               </div>
 
-              <button
-                onClick={processarCsv}
-                disabled={carregandoCsv || !arquivoCsv}
-                className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 text-white rounded-lg text-sm font-semibold shadow-sm transition"
-              >
-                {carregandoCsv ? 'Importando...' : 'Processar e Carregar Itens'}
-              </button>
+              {planilhasWorkbook.length > 1 && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Aba da Planilha</label>
+                  <select
+                    value={abaSelecionada}
+                    onChange={(e) => handleMudarAba(e.target.value)}
+                    disabled={importandoLotes}
+                    className="w-full px-3 py-2 border rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                  >
+                    <option value="TODAS">Todas as abas (Insumos + Composições)</option>
+                    {planilhasWorkbook.map((name) => (
+                      <option key={name} value={name}>
+                        Aba: {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex flex-col justify-end">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 font-medium select-none mb-2">
+                  <input
+                    type="checkbox"
+                    checked={prefixarSinapi}
+                    onChange={(e) => handleMudarPrefixo(e.target.checked)}
+                    disabled={importandoLotes}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Prefixar códigos com <code className="bg-slate-100 px-1 py-0.5 rounded text-[11px] font-mono">SINAPI-</code>
+                </label>
+
+                <button
+                  onClick={executarImportacaoEmLote}
+                  disabled={importandoLotes || lendoArquivo || itensParaImportar.length === 0}
+                  className="w-full px-4 py-2 bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 text-white rounded-lg text-sm font-semibold shadow-sm transition flex items-center justify-center gap-2"
+                >
+                  {importandoLotes ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Gravando Lotes no Banco...
+                    </>
+                  ) : lendoArquivo ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Lendo Planilha...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      Gravar {itensParaImportar.length.toLocaleString('pt-BR')} Itens em Lote
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
+
+            {/* Barra de Progresso em Tempo Real */}
+            {progressoLote && (
+              <div className="bg-slate-50 border border-indigo-100 p-4 rounded-xl space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-semibold text-indigo-900 flex items-center gap-1.5">
+                    <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 ${importandoLotes ? 'animate-spin' : ''}`} />
+                    Lote {progressoLote.loteAtual} de {progressoLote.totalLotes} ({progressoLote.porcentagem}%)
+                  </span>
+                  <span className="text-slate-600">
+                    <strong className="text-indigo-700 font-bold">{progressoLote.itensGravados.toLocaleString('pt-BR')}</strong> de {progressoLote.totalItens.toLocaleString('pt-BR')} itens processados
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${progressoLote.porcentagem}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Pré-visualização dos Primeiros Itens */}
+            {itensPrevia.length > 0 && !importandoLotes && (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex justify-between items-center">
+                  <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Table className="w-3.5 h-3.5 text-slate-500" />
+                    Amostra dos Dados Identificados (Primeiros 5 de {itensParaImportar.length.toLocaleString('pt-BR')} itens):
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    {nomeArquivo} ({tamanhoArquivo})
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs text-left text-slate-600">
+                    <thead className="bg-slate-100 text-slate-700 font-semibold uppercase text-[10px]">
+                      <tr>
+                        <th className="px-3 py-1.5">Código</th>
+                        <th className="px-3 py-1.5">Descrição</th>
+                        <th className="px-3 py-1.5">Unidade</th>
+                        <th className="px-3 py-1.5 text-right">Preço Unitário (R$)</th>
+                        <th className="px-3 py-1.5">Origem (Aba)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {itensPrevia.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/80">
+                          <td className="px-3 py-1.5 font-mono font-semibold text-indigo-700">{item.codigo}</td>
+                          <td className="px-3 py-1.5 max-w-md truncate" title={item.descricao}>{item.descricao}</td>
+                          <td className="px-3 py-1.5 font-medium">{item.unidade}</td>
+                          <td className="px-3 py-1.5 text-right font-mono font-semibold text-slate-900">
+                            {Number(item.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </td>
+                          <td className="px-3 py-1.5 text-slate-400 text-[11px]">{item.origemAba || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Tabela de Insumos Cadastrados */}
