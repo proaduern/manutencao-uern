@@ -158,7 +158,9 @@ export async function GET(request: NextRequest) {
     });
 
     // 6. Define cookie seguro de sessão DIRETAMENTE na resposta de redirecionamento (garantia serverless)
-    const redirectResponse = NextResponse.redirect(new URL('/', request.url));
+    const isTreino = searchParams.get('treinamento') === '1';
+    const redirectTarget = isTreino ? '/?treinamento=1' : '/';
+    const redirectResponse = NextResponse.redirect(new URL(redirectTarget, request.url));
     redirectResponse.cookies.set(COOKIE_NAME, sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
