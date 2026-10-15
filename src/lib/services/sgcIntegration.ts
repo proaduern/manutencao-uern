@@ -54,7 +54,7 @@ export interface MedicaoParams {
  */
 export async function buscarContratosManutencaoSgc(): Promise<ContratoSgcInfo[]> {
   try {
-    const res = await fetch(`${SGC_BASE_URL}/api/integracao/manutencao/contratos`, {
+    const res = await fetch(`${SGC_BASE_URL}/api/integracao/manutencao/contratos?tipo=PREDIAL`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${SERVICE_KEY}`,

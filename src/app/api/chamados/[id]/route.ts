@@ -552,24 +552,26 @@ export async function PATCH(req: Request, { params }: RouteContext) {
         }
       }
 
+      // A OS prévia aberta pelo Fiscal Administrativo no SGC tem caráter estimativo (não limitante).
+      // Os chamados autorizados consomem do saldo global do contrato.
       let osSgcEmitida: any = null;
       if (autorizar && chamado.valorOrcado && Number(chamado.valorOrcado) > 0) {
-        const resSgc = await reservarSaldoOsNoSgc({
-          numeroOs: `OS-UERN-${String(chamado.numero).padStart(4, '0')}/${new Date().getFullYear()}`,
-          descricaoServico: `Chamado nº ${chamado.numero}: ${chamado.setorEspecifico || ''} - ${chamado.descricao?.slice(0, 100) || 'Manutenção Predial'}`,
-          valorEstimado: Number(chamado.valorOrcado),
-          autorizadoPorNome: session.nome,
-          autorizadoPorEmail: session.email,
-          origemChamadoId: chamado.numero,
-          unidadeDemandante: (chamado as any).unidade?.sigla || (chamado as any).unidade?.nome,
-        });
-
-        if (!resSgc.sucesso && resSgc.status === 422) {
-          return NextResponse.json({
-            error: `Bloqueio no SGC: ${resSgc.erro}`,
-          }, { status: 422 });
+        try {
+          const resSgc = await reservarSaldoOsNoSgc({
+            numeroOs: `OS-PREDIAL-${new Date().getFullYear()}`,
+            descricaoServico: `Chamado nº ${chamado.numero}: ${chamado.setorEspecifico || ''} - ${chamado.descricao?.slice(0, 100) || 'Manutenção Predial'}`,
+            valorEstimado: Number(chamado.valorOrcado),
+            autorizadoPorNome: session.nome,
+            autorizadoPorEmail: session.email,
+            origemChamadoId: chamado.numero,
+            unidadeDemandante: (chamado as any).unidade?.sigla || (chamado as any).unidade?.nome,
+          });
+          if (resSgc?.sucesso) {
+            osSgcEmitida = resSgc.ordemServico;
+          }
+        } catch (err) {
+          console.info('[SGC Interop] Notificação de saldo SGC:', err);
         }
-        osSgcEmitida = resSgc.ordemServico;
       }
 
       const novoStatus = autorizar ? 'AUTORIZADO' : 'RECUSADO';

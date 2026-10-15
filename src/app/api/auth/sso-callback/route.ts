@@ -59,8 +59,14 @@ export async function GET(request: NextRequest) {
     // 2. Mapeamento de papéis para o enum Role de Manutenção
     let manutRole: Role = Role.DEMANDANTE;
     const roleUpper = (role || '').toUpperCase();
+    const emailLimpo = email.toLowerCase().trim();
 
-    if (roleUpper === 'ADMIN' || roleUpper === 'ADMIN_PROAD') {
+    if (
+      roleUpper === 'ADMIN' ||
+      roleUpper === 'ADMIN_PROAD' ||
+      emailLimpo === 'adj.proad@uern.br' ||
+      emailLimpo === 'pedroreboucas@uern.br'
+    ) {
       manutRole = Role.ADMIN;
     } else if (roleUpper === 'GESTOR_CONTRATO' || roleUpper === 'GESTOR') {
       manutRole = Role.GESTOR_CONTRATO;
@@ -103,7 +109,6 @@ export async function GET(request: NextRequest) {
     }
 
     // 4. Localiza ou cria o usuário na base de Manutenção
-    const emailLimpo = email.toLowerCase().trim();
     let usuarioManut = await prisma.usuario.findUnique({
       where: { email: emailLimpo },
       include: { unidade: true },
