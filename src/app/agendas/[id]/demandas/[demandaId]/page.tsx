@@ -48,6 +48,16 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
   const [modalContestarValores, setModalContestarValores] = useState(false);
   const [modalConcluirEmpresa, setModalConcluirEmpresa] = useState(false);
   const [modalAceiteUnidade, setModalAceiteUnidade] = useState(false);
+  const [modalEditarDemanda, setModalEditarDemanda] = useState(false);
+
+  // Form Editar Demanda (Admin / Gestor)
+  const [editTitulo, setEditTitulo] = useState('');
+  const [editDescricao, setEditDescricao] = useState('');
+  const [editJustificativa, setEditJustificativa] = useState('');
+  const [editEstimativa, setEditEstimativa] = useState('');
+  const [editStatus, setEditStatus] = useState('');
+  const [editLocalizacaoDetalhada, setEditLocalizacaoDetalhada] = useState('');
+  const [editObservacaoEdicao, setEditObservacaoEdicao] = useState('');
 
   // Form Proposta Empresa
   const [rtNome, setRtNome] = useState('');
@@ -163,11 +173,24 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
       setModalContestarValores(false);
       setModalConcluirEmpresa(false);
       setModalAceiteUnidade(false);
+      setModalEditarDemanda(false);
     } catch (err: any) {
       alert(err.message);
     } finally {
       setProcessandoAcao(false);
     }
+  };
+
+  const abrirModalEditar = () => {
+    if (!demanda) return;
+    setEditTitulo(demanda.titulo || '');
+    setEditDescricao(demanda.descricaoProblema || '');
+    setEditJustificativa(demanda.justificativa || '');
+    setEditEstimativa(demanda.estimativaDemandante ? demanda.estimativaDemandante.toString() : '');
+    setEditStatus(demanda.status || 'SUBMETIDA');
+    setEditLocalizacaoDetalhada(demanda.localizacaoDetalhada || '');
+    setEditObservacaoEdicao('');
+    setModalEditarDemanda(true);
   };
 
   const handleAddItemProposta = () => {
@@ -457,6 +480,17 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                 >
                   <ShieldCheck className="w-4 h-4 text-purple-200" />
                   <span>Homologar Aceite / Reprovar Serviço (5 dias úteis)</span>
+                </button>
+              )}
+
+              {/* ADMIN / GESTOR: EDITAR DEMANDA */}
+              {isAdminOrGestor && (
+                <button
+                  onClick={abrirModalEditar}
+                  className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-sm"
+                >
+                  <Edit className="w-4 h-4 text-amber-400" />
+                  <span>Editar Dados da Demanda</span>
                 </button>
               )}
             </div>
@@ -1204,6 +1238,143 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                 }`}
               >
                 {aceiteAprovado ? 'Homologar Aprovação' : 'Enviar Reprovação para Correção'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDITAR DADOS DA DEMANDA (ADMIN / GESTOR) */}
+      {modalEditarDemanda && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-xl border border-slate-200 text-xs max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Edit className="w-5 h-5 text-amber-500" />
+                <span>Editar Dados da Demanda #{demanda.numero}</span>
+              </h3>
+              <button
+                onClick={() => setModalEditarDemanda(false)}
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Título da Demanda</label>
+              <input
+                type="text"
+                value={editTitulo}
+                onChange={(e) => setEditTitulo(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Descrição do Problema / Serviço</label>
+              <textarea
+                rows={4}
+                value={editDescricao}
+                onChange={(e) => setEditDescricao(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Status Atual no Fluxo</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 bg-slate-50"
+                >
+                  <option value="SUBMETIDA">SUBMETIDA</option>
+                  <option value="APROVADA_PROAD">APROVADA_PROAD</option>
+                  <option value="ENVIADA_EMPRESA">ENVIADA_EMPRESA (Aguardando Orçamento)</option>
+                  <option value="AGUARDANDO_SOBE">AGUARDANDO_SOBE (Projeto SOBE)</option>
+                  <option value="PROPOSTA_EM_ANALISE">PROPOSTA_EM_ANALISE</option>
+                  <option value="EM_DILIGENCIA">EM_DILIGENCIA</option>
+                  <option value="CONTESTADA_UERN">CONTESTADA_UERN</option>
+                  <option value="AUTORIZADA">AUTORIZADA</option>
+                  <option value="EM_EXECUCAO">EM_EXECUCAO</option>
+                  <option value="AGUARDANDO_ACEITE_UNIDADE">AGUARDANDO_ACEITE_UNIDADE</option>
+                  <option value="EM_CORRECAO_EMPRESA">EM_CORRECAO_EMPRESA</option>
+                  <option value="CONCLUIDA">CONCLUIDA</option>
+                  <option value="CANCELADA">CANCELADA</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Estimativa de Custo (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editEstimativa}
+                  onChange={(e) => setEditEstimativa(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Localização Específica / Detalhes</label>
+              <input
+                type="text"
+                value={editLocalizacaoDetalhada}
+                onChange={(e) => setEditLocalizacaoDetalhada(e.target.value)}
+                placeholder="Ex: Bloco A, Sala 04, Laboratório..."
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Justificativa / Observações da Demanda</label>
+              <textarea
+                rows={3}
+                value={editJustificativa}
+                onChange={(e) => setEditJustificativa(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Motivo do Ajuste / Histórico (Opcional)</label>
+              <input
+                type="text"
+                value={editObservacaoEdicao}
+                onChange={(e) => setEditObservacaoEdicao(e.target.value)}
+                placeholder="Ex: Correção de descrição conforme planilha da Reitoria..."
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModalEditarDemanda(false)}
+                className="px-3.5 py-1.5 text-slate-600 hover:text-slate-800 font-medium"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  executarAcaoDemanda('EDITAR_DEMANDA', {
+                    titulo: editTitulo,
+                    descricaoProblema: editDescricao,
+                    justificativa: editJustificativa,
+                    estimativaDemandante: editEstimativa,
+                    status: editStatus,
+                    localizacaoDetalhada: editLocalizacaoDetalhada,
+                    observacaoEdicao: editObservacaoEdicao,
+                  })
+                }
+                disabled={processandoAcao}
+                className="px-4 py-1.5 bg-slate-900 hover:bg-slate-950 text-white font-bold rounded-lg shadow-sm"
+              >
+                Salvar Alterações
               </button>
             </div>
           </div>

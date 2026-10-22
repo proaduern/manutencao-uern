@@ -692,6 +692,51 @@ export async function PATCH(req: Request, { params }: RouteContext) {
       });
     }
 
+    // =========================================================================
+    // 10. ADMIN / GESTOR: EDITAR DADOS DA DEMANDA
+    // =========================================================================
+    if (acao === 'EDITAR_DEMANDA') {
+      if (session.role !== 'ADMIN' && session.role !== 'GESTOR_CONTRATO') {
+        return NextResponse.json({ error: 'Apenas administradores ou gestores do contrato podem editar a demanda.' }, { status: 403 });
+      }
+
+      const { titulo, descricaoProblema, justificativa, estimativaDemandante, status, localizacaoDetalhada, observacaoEdicao } = body;
+
+      const dataUpdate: any = {};
+      if (titulo !== undefined) dataUpdate.titulo = titulo.trim();
+      if (descricaoProblema !== undefined) dataUpdate.descricaoProblema = descricaoProblema.trim();
+      if (justificativa !== undefined) dataUpdate.justificativa = justificativa?.trim() || null;
+      if (estimativaDemandante !== undefined) {
+        dataUpdate.estimativaDemandante = estimativaDemandante ? parseFloat(estimativaDemandante) : null;
+      }
+      if (status !== undefined) dataUpdate.status = status;
+      if (localizacaoDetalhada !== undefined) dataUpdate.localizacaoDetalhada = localizacaoDetalhada?.trim() || null;
+
+      const atualizado = await prisma.$transaction(async (tx) => {
+        const d = await tx.agendaDemanda.update({
+          where: { id: demanda.id },
+          data: dataUpdate,
+        });
+
+        await tx.agendaDemandaTimeline.create({
+          data: {
+            demandaId: d.id,
+            statusNovo: d.status,
+            responsavel: session.nome,
+            observacao: observacaoEdicao?.trim() || 'Dados da demanda editados e atualizados pelo administrador/gestor.',
+          },
+        });
+
+        return d;
+      });
+
+      return NextResponse.json({
+        success: true,
+        demanda: atualizado,
+        mensagem: 'Demanda atualizada com sucesso!',
+      });
+    }
+
     return NextResponse.json({ error: 'Ação não reconhecida' }, { status: 400 });
   } catch (error: any) {
     console.error('Erro na tramitação da demanda da agenda:', error);
