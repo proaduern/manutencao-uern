@@ -1,5 +1,21 @@
 import prisma from '@/lib/prisma';
 
+// Cache in-memory para alívio de estresse de banco sob picos de concorrência (TTL: 15s)
+interface CacheEntry {
+  timestamp: number;
+  data: ResultadoGrandezasContrato;
+}
+const cacheGrandezas: Map<string, CacheEntry> = new Map();
+const TTL_GRANDEZAS_MS = 15_000;
+
+export function limparCacheGrandezasContrato(contratoId?: string) {
+  if (contratoId) {
+    cacheGrandezas.delete(contratoId);
+  } else {
+    cacheGrandezas.clear();
+  }
+}
+
 export const STATUS_PROVISIONADOS = ['AUTORIZADO', 'EM_EXECUCAO', 'ATENDIDO', 'DEVOLVIDO'] as const;
 export const STATUS_LIQUIDADOS = ['EM_GARANTIA', 'CONCLUIDO'] as const;
 
@@ -83,8 +99,21 @@ export interface ResultadoGrandezasContrato {
  * 3. Serviços Eventuais (Variável: Deduzido quando o chamado envolver serviço eventual = MO eventual + materiais)
  * 4. Diárias de Deslocamento (Variável: Deduzido quando o atendimento demandar deslocamento de MO residente para outra sede)
  */
-export async function obterGrandezasContrato(contratoId: string): Promise<ResultadoGrandezasContrato | null> {
-  const contrato = await prisma.contrato.findUnique({
+export async function obterGrandezasContrato(
+  contratoId: string,
+  tx?: any,
+  bypassCache = false
+): Promise<ResultadoGrandezasContrato | null> {
+  const agora = Date.now();
+  if (!bypassCache && !tx) {
+    const cached = cacheGrandezas.get(contratoId);
+    if (cached && agora - cached.timestamp < TTL_GRANDEZAS_MS) {
+      return cached.data;
+    }
+  }
+
+  const db = tx || prisma;
+  const contrato = await db.contrato.findUnique({
     where: { id: contratoId },
     include: {
       empresa: true,
@@ -121,7 +150,7 @@ export async function obterGrandezasContrato(contratoId: string): Promise<Result
   }, 0) || 0;
   
   // Buscar chamados da empresa deste contrato
-  const chamados = await prisma.chamado.findMany({
+  const chamados = await db.chamado.findMany({
     where: {
       OR: [
         { empresaId: contrato.empresaId },
@@ -221,10 +250,10 @@ export async function obterGrandezasContrato(contratoId: string): Promise<Result
     } else {
       // Chamado rotineiro atendido por mão de obra residente (MO residente é fixa, debita apenas insumos)
       const insumosPrevistos = c.insumos
-        ? c.insumos.filter((i) => i.tipoInsumo === 'PREVISTO').reduce((acc, i) => acc + parseFloat(i.valorTotal.toString()), 0)
+        ? c.insumos.filter((i: any) => i.tipoInsumo === 'PREVISTO').reduce((acc: number, i: any) => acc + parseFloat(i.valorTotal.toString()), 0)
         : 0;
       const insumosExecutados = c.insumos
-        ? c.insumos.filter((i) => i.tipoInsumo === 'EXECUTADO').reduce((acc, i) => acc + parseFloat(i.valorTotal.toString()), 0)
+        ? c.insumos.filter((i: any) => i.tipoInsumo === 'EXECUTADO').reduce((acc: number, i: any) => acc + parseFloat(i.valorTotal.toString()), 0)
         : 0;
 
       const fallbackOrcado = c.totalPrevisto
@@ -268,7 +297,7 @@ export async function obterGrandezasContrato(contratoId: string): Promise<Result
   const STATUS_PROVISIONADOS_AGENDA = ['AUTORIZADA', 'EM_EXECUCAO', 'AGUARDANDO_ACEITE_UNIDADE', 'EM_CORRECAO_EMPRESA'];
   const STATUS_LIQUIDADOS_AGENDA = ['CONCLUIDA'];
 
-  const demandasAgenda = await prisma.agendaDemanda.findMany({
+  const demandasAgenda = await db.agendaDemanda.findMany({
     where: {
       status: {
         in: [
@@ -415,7 +444,7 @@ export async function obterGrandezasContrato(contratoId: string): Promise<Result
   };
 
   // Montar grandezas por cota de unidade
-  const cotasFormatadas: GrandezasFinanceirasCota[] = contrato.unidades.map((cu) => {
+  const cotasFormatadas: GrandezasFinanceirasCota[] = contrato.unidades.map((cu: any) => {
     const cotaContratada = parseFloat(cu.cotaAnual.toString());
     const cotaMensal = parseFloat(cu.cotaMensal.toString());
     const gastos = gastosPorUnidade[cu.unidadeId] || { provisionado: 0, liquidado: 0 };
@@ -444,7 +473,7 @@ export async function obterGrandezasContrato(contratoId: string): Promise<Result
     };
   });
 
-  return {
+  const resultado: ResultadoGrandezasContrato = {
     contrato,
     grandezasContrato: {
       valorContratado: valorBase,
@@ -461,6 +490,12 @@ export async function obterGrandezasContrato(contratoId: string): Promise<Result
     },
     cotas: cotasFormatadas,
   };
+
+  if (!tx) {
+    cacheGrandezas.set(contratoId, { timestamp: agora, data: resultado });
+  }
+
+  return resultado;
 }
 
 /**
@@ -469,24 +504,28 @@ export async function obterGrandezasContrato(contratoId: string): Promise<Result
  * - Sem cota: a unidade consome o saldo global.
  * - O saldo global também é verificado para evitar estouro orçamentário.
  * - Retorna se há saldo suficiente para o orçamento proposto.
+ * - Suporta execução dentro de transação atômica (tx) com bypass de cache.
  */
 export async function verificarSaldoParaOrcamento(
   unidadeId: string,
   valorOrcadoProposto: number,
   chamadoId?: string,
-  empresaId?: string
+  empresaId?: string,
+  tx?: any
 ): Promise<ResultadoSaldo> {
+  const db = tx || prisma;
+
   // 1. Encontrar o contrato ativo correspondente
   let contrato = null;
   if (empresaId) {
-    contrato = await prisma.contrato.findFirst({
+    contrato = await db.contrato.findFirst({
       where: { empresaId, ativo: true },
       orderBy: { criadoEm: 'desc' },
     });
   }
 
   if (!contrato) {
-    contrato = await prisma.contrato.findFirst({
+    contrato = await db.contrato.findFirst({
       where: { ativo: true },
       orderBy: { criadoEm: 'desc' },
     });
@@ -502,7 +541,7 @@ export async function verificarSaldoParaOrcamento(
     };
   }
 
-  const grandezas = await obterGrandezasContrato(contrato.id);
+  const grandezas = await obterGrandezasContrato(contrato.id, tx, true);
   if (!grandezas) {
     return {
       temSaldo: false,
@@ -514,7 +553,7 @@ export async function verificarSaldoParaOrcamento(
   // Se o chamado já possuía valor anteriormente (ex: reorçamento), deduz o valor anterior para não duplicar
   let saldoGlobalAjustado = grandezas.grandezasContrato.saldoDisponivel;
   if (chamadoId) {
-    const chamadoAtual = await prisma.chamado.findUnique({
+    const chamadoAtual = await db.chamado.findUnique({
       where: { id: chamadoId },
       select: { valorOrcado: true, totalPrevisto: true, status: true },
     });
@@ -534,7 +573,7 @@ export async function verificarSaldoParaOrcamento(
   if (cotaUnidade) {
     let saldoCotaAjustado = cotaUnidade.saldoDisponivel;
     if (chamadoId) {
-      const chamadoAtual = await prisma.chamado.findUnique({
+      const chamadoAtual = await db.chamado.findUnique({
         where: { id: chamadoId },
         select: { valorOrcado: true, totalPrevisto: true, status: true },
       });

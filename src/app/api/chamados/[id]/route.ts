@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma';
 import { getSession } from '@/lib/auth';
 import { calcularEstadoPrazo } from '@/lib/services/prazos';
 import { verificarAlcadaOrcamentaria } from '@/lib/services/alcada';
-import { verificarSaldoParaOrcamento } from '@/lib/services/contrato';
+import { verificarSaldoParaOrcamento, limparCacheGrandezasContrato } from '@/lib/services/contrato';
 import { reservarSaldoOsNoSgc, enviarMedicaoAoSgc } from '@/lib/services/sgcIntegration';
 
 export const dynamic = 'force-dynamic';
@@ -133,30 +133,32 @@ export async function PATCH(req: Request, { params }: RouteContext) {
         totalOrcado
       );
 
-      // Regra Seção 8: Verificar disponibilidade de saldo (cota da unidade ou contrato global)
-      const validacaoSaldo = await verificarSaldoParaOrcamento(
-        chamado.unidadeId,
-        totalOrcado,
-        chamado.id,
-        chamado.empresaId || undefined
-      );
+      // Inserção no banco com transação garantindo verificação atômica de saldo, insumos e timeline
+      const resultadoTransacao = await prisma.$transaction(async (tx) => {
+        // Regra Seção 8: Verificar disponibilidade de saldo (cota da unidade ou contrato global) com bloqueio atômico
+        const validacaoSaldo = await verificarSaldoParaOrcamento(
+          chamado.unidadeId,
+          totalOrcado,
+          chamado.id,
+          chamado.empresaId || undefined,
+          tx
+        );
 
-      // Determinar próximo status
-      let novoStatus: any = 'AUTORIZADO';
-      let observacaoTimeline = `Orçamento de R$ ${totalOrcado.toFixed(2)} aprovado automaticamente (dentro da alçada direta). Valor provisionado no contrato.`;
+        // Determinar próximo status
+        let novoStatus: any = 'AUTORIZADO';
+        let observacaoTimeline = `Orçamento de R$ ${totalOrcado.toFixed(2)} aprovado automaticamente (dentro da alçada direta). Valor provisionado no contrato.`;
 
-      if (!validacaoSaldo.temSaldo) {
-        novoStatus = 'BLOQUEADO_SEM_SALDO';
-        observacaoTimeline = `Orçamento de R$ ${totalOrcado.toFixed(2)} lançado, mas chamado BLOQUEADO POR FALTA DE SALDO: ${validacaoSaldo.motivo}`;
-      } else if (chamado.execucaoEmergencial) {
-        novoStatus = 'EM_EXECUCAO';
-        observacaoTimeline = `Orçamento de R$ ${totalOrcado.toFixed(2)} registrado para execução emergencial já em andamento. Valor provisionado.`;
-      } else if (alcada.precisaAutorizacao) {
-        novoStatus = 'AGUARDANDO_AUTORIZACAO';
-        observacaoTimeline = `Orçamento de R$ ${totalOrcado.toFixed(2)} enviado para autorização da fiscalização. Motivo: ${alcada.motivo}`;
-      }
+        if (!validacaoSaldo.temSaldo) {
+          novoStatus = 'BLOQUEADO_SEM_SALDO';
+          observacaoTimeline = `Orçamento de R$ ${totalOrcado.toFixed(2)} lançado, mas chamado BLOQUEADO POR FALTA DE SALDO: ${validacaoSaldo.motivo}`;
+        } else if (chamado.execucaoEmergencial) {
+          novoStatus = 'EM_EXECUCAO';
+          observacaoTimeline = `Orçamento de R$ ${totalOrcado.toFixed(2)} registrado para execução emergencial já em andamento. Valor provisionado.`;
+        } else if (alcada.precisaAutorizacao) {
+          novoStatus = 'AGUARDANDO_AUTORIZACAO';
+          observacaoTimeline = `Orçamento de R$ ${totalOrcado.toFixed(2)} enviado para autorização da fiscalização. Motivo: ${alcada.motivo}`;
+        }
 
-      const atualizado = await prisma.$transaction(async (tx) => {
         // Remover insumos previstos anteriores se estiver reorçando
         await tx.chamadoInsumo.deleteMany({
           where: { chamadoId: chamado.id, tipoInsumo: 'PREVISTO' },
@@ -217,8 +219,13 @@ export async function PATCH(req: Request, { params }: RouteContext) {
           },
         });
 
-        return c;
+        return { chamado: c, novoStatus, validacaoSaldo };
       });
+
+      // Invalida cache de grandezas imediatamente após alteração orçamentária
+      limparCacheGrandezasContrato();
+
+      const { chamado: atualizado, novoStatus } = resultadoTransacao;
 
       let mensagemRetorno = 'Orçamento aprovado automaticamente. A empresa pode iniciar os serviços!';
       if (novoStatus === 'BLOQUEADO_SEM_SALDO') {

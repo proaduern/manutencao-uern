@@ -8,10 +8,14 @@ export const dynamic = 'force-dynamic';
 
 const COOKIE_NAME = 'manutencao_uern_token';
 
-// Suporte a múltiplas chaves mestras e chaves de ambiente para resiliência no Vercel
+// Priorização estrita das chaves de ambiente com fallback monitorado
+const primarySecret = process.env.PROAD_SSO_SECRET?.trim() || process.env.JWT_SECRET?.trim();
+if (!primarySecret) {
+  console.warn('[SRE Security Warning] PROAD_SSO_SECRET não está configurado em variáveis de ambiente. Usando contingência.');
+}
+
 const SECRET_KEYS: Uint8Array[] = [
-  process.env.PROAD_SSO_SECRET,
-  process.env.JWT_SECRET,
+  primarySecret,
   'uern_portal_proad_sso_master_key_2026_super_seguro',
   'uern_manutencao_segredo_jwt_proad_2026_super_seguro',
 ]
@@ -129,13 +133,19 @@ export async function GET(request: NextRequest) {
         include: { unidade: true },
       });
     } else {
+      // Se o usuário já tiver perfil especializado (ex: Fiscal, Gestor, Técnico SOBE, Empresa)
+      // e o SSO enviar perfil genérico DEMANDANTE, preserva o papel local para não desconfigurar acessos
+      const roleFinal = (manutRole === Role.DEMANDANTE && usuarioManut.role !== Role.DEMANDANTE)
+        ? usuarioManut.role
+        : manutRole;
+
       // Atualiza dados e perfil caso tenham mudado no Portal
       usuarioManut = await prisma.usuario.update({
         where: { id: usuarioManut.id },
         data: {
           nome: nome || usuarioManut.nome,
           matricula: matricula || usuarioManut.matricula,
-          role: manutRole,
+          role: roleFinal,
           ativo: true,
           deveTrocarSenha: false,
           ...(unidadeId && !usuarioManut.unidadeId ? { unidadeId } : {}),
