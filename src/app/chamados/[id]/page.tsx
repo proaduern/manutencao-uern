@@ -25,6 +25,7 @@ import {
   X,
   Edit2,
   MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -50,6 +51,11 @@ export default function DetalheChamadoPage({ params }: Props) {
   const [novoUn, setNovoUn] = useState('un');
   const [novoQtd, setNovoQtd] = useState('');
   const [novoVal, setNovoVal] = useState('');
+
+  // Busca em Tempo Real no Catálogo SINAPI Oficial
+  const [buscaSinapiChamado, setBuscaSinapiChamado] = useState('');
+  const [resultadosSinapiChamado, setResultadosSinapiChamado] = useState<any[]>([]);
+  const [buscandoSinapiChamado, setBuscandoSinapiChamado] = useState(false);
 
   // Iniciar Execução (Empresa)
   const [maoObra, setMaoObra] = useState('FIXA');
@@ -147,6 +153,24 @@ export default function DetalheChamadoPage({ params }: Props) {
     setNovoUn(item.unidadeMedida);
     setNovoVal(parseFloat(item.precoUnitario).toString());
   };
+
+  useEffect(() => {
+    if (!buscaSinapiChamado || buscaSinapiChamado.trim().length < 2) {
+      setResultadosSinapiChamado([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setBuscandoSinapiChamado(true);
+      fetch(`/api/tabelas/buscar?q=${encodeURIComponent(buscaSinapiChamado.trim())}&limite=15`)
+        .then((res) => res.json())
+        .then((data) => {
+          setResultadosSinapiChamado(data.itens || []);
+        })
+        .catch(() => setResultadosSinapiChamado([]))
+        .finally(() => setBuscandoSinapiChamado(false));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [buscaSinapiChamado]);
 
   // Interação e Comentários da Unidade
   const [novoComentario, setNovoComentario] = useState('');
@@ -651,6 +675,68 @@ export default function DetalheChamadoPage({ params }: Props) {
               <p className="text-xs text-slate-500">
                 Adicione insumos da tabela oficial ou códigos específicos. O botão "Enviar Orçamento" aciona a verificação de alçada.
               </p>
+
+              {/* BUSCA RÁPIDA NO SINAPI */}
+              <div className="relative bg-blue-50/70 p-3 rounded-xl border border-blue-200 space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-bold text-blue-900">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Busca Rápida na Base SINAPI Oficial (RN - 12/2025)</span>
+                  </span>
+                  <span className="text-[10px] text-blue-700 font-normal">
+                    14.961 composições e insumos com preços oficiais
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Digite o código (ex: 88316) ou palavras-chave (ex: pintura latex, piso ceramica, disjuntor)..."
+                    value={buscaSinapiChamado}
+                    onChange={(e) => setBuscaSinapiChamado(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-blue-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                  {buscandoSinapiChamado && (
+                    <span className="absolute right-3 top-2 text-[10px] text-slate-400">Buscando...</span>
+                  )}
+                </div>
+
+                {/* RESULTADOS DA BUSCA */}
+                {resultadosSinapiChamado.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-300 rounded-xl shadow-xl max-h-56 overflow-y-auto z-50 divide-y divide-slate-100 text-xs">
+                    {resultadosSinapiChamado.map((item) => (
+                      <div
+                        key={item.id}
+                        onClick={() => {
+                          selecionarItemSinapi(item);
+                          setBuscaSinapiChamado('');
+                          setResultadosSinapiChamado([]);
+                        }}
+                        className="p-2.5 hover:bg-blue-50 cursor-pointer flex items-center justify-between gap-3 transition-colors"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-blue-700">{item.codigo}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 font-semibold text-slate-600">
+                              {item.unidadeMedida}
+                            </span>
+                          </div>
+                          <p className="text-slate-800 font-medium truncate mt-0.5" title={item.descricao}>
+                            {item.descricao}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="font-mono font-bold text-slate-900 block">
+                            R$ {item.precoUnitario ? item.precoUnitario.toFixed(2) : '0,00'}
+                          </span>
+                          <span className="text-[10px] text-blue-700 font-bold hover:underline">
+                            + Preencher no Formulário
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Inclusão de Item */}
               <div className="grid grid-cols-1 sm:grid-cols-6 gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">

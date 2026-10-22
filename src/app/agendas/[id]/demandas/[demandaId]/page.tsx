@@ -78,6 +78,11 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
     },
   ]);
 
+  // Busca em Tempo Real no Catálogo SINAPI Oficial
+  const [buscaSinapi, setBuscaSinapi] = useState('');
+  const [resultadosSinapi, setResultadosSinapi] = useState<any[]>([]);
+  const [buscandoSinapi, setBuscandoSinapi] = useState(false);
+
   // Form Diligência
   const [textoDiligencia, setTextoDiligencia] = useState('');
 
@@ -209,6 +214,58 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
 
   const handleRemoveItemProposta = (index: number) => {
     setItensProposta(itensProposta.filter((_, i) => i !== index));
+  };
+
+  useEffect(() => {
+    if (!buscaSinapi || buscaSinapi.trim().length < 2) {
+      setResultadosSinapi([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setBuscandoSinapi(true);
+      fetch(`/api/tabelas/buscar?q=${encodeURIComponent(buscaSinapi.trim())}&limite=15`)
+        .then((res) => res.json())
+        .then((data) => {
+          setResultadosSinapi(data.itens || []);
+        })
+        .catch(() => setResultadosSinapi([]))
+        .finally(() => setBuscandoSinapi(false));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [buscaSinapi]);
+
+  const handleAdicionarItemDoSinapi = (itemSinapi: any) => {
+    if (
+      itensProposta.length === 1 &&
+      !itensProposta[0].codigoItem &&
+      !itensProposta[0].descricao &&
+      !itensProposta[0].valorUnitario
+    ) {
+      setItensProposta([
+        {
+          fonteReferencia: 'SINAPI',
+          codigoItem: itemSinapi.codigo,
+          descricao: itemSinapi.descricao,
+          unidadeMedida: itemSinapi.unidadeMedida || 'UN',
+          quantidade: '1',
+          valorUnitario: itemSinapi.precoUnitario ? itemSinapi.precoUnitario.toString() : '0',
+        },
+      ]);
+    } else {
+      setItensProposta([
+        ...itensProposta,
+        {
+          fonteReferencia: 'SINAPI',
+          codigoItem: itemSinapi.codigo,
+          descricao: itemSinapi.descricao,
+          unidadeMedida: itemSinapi.unidadeMedida || 'UN',
+          quantidade: '1',
+          valorUnitario: itemSinapi.precoUnitario ? itemSinapi.precoUnitario.toString() : '0',
+        },
+      ]);
+    }
+    setBuscaSinapi('');
+    setResultadosSinapi([]);
   };
 
   const handleUpdateItemProposta = (index: number, campo: string, valor: string) => {
@@ -571,7 +628,8 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                         <th className="py-2.5 px-4">Descrição do Serviço / Insumo</th>
                         <th className="py-2.5 px-3 text-center">Un.</th>
                         <th className="py-2.5 px-3 text-right">Qtd</th>
-                        <th className="py-2.5 px-3 text-right">Valor Unit. (R$)</th>
+                        <th className="py-2.5 px-3 text-right">Unitário Proposto</th>
+                        <th className="py-2.5 px-3 text-center">Checagem SINAPI (RN)</th>
                         <th className="py-2.5 px-3 text-right">Valor Total (R$)</th>
                       </tr>
                     </thead>
@@ -583,8 +641,31 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                           <td className="py-2 px-4 font-medium text-slate-900">{it.descricao}</td>
                           <td className="py-2 px-3 text-center text-slate-500">{it.unidadeMedida}</td>
                           <td className="py-2 px-3 text-right font-mono">{parseFloat(it.quantidade.toString()).toFixed(2)}</td>
-                          <td className="py-2 px-3 text-right font-mono">
+                          <td className="py-2 px-3 text-right font-mono font-medium">
                             R$ {parseFloat(it.valorUnitario.toString()).toFixed(2)}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {it.conformidade === 'CONFORME' && (
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800"
+                                title={`Referência Oficial SINAPI: R$ ${it.referenciaOficial?.precoUnitario?.toFixed(2)}`}
+                              >
+                                🟢 R$ {it.referenciaOficial?.precoUnitario?.toFixed(2)} (Conforme)
+                              </span>
+                            )}
+                            {it.conformidade === 'SOBREPRECO' && (
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800"
+                                title={`Preço Oficial SINAPI: R$ ${it.referenciaOficial?.precoUnitario?.toFixed(2)} - Excede em +${it.diferencaPercentual}%`}
+                              >
+                                🔴 R$ {it.referenciaOficial?.precoUnitario?.toFixed(2)} (+{it.diferencaPercentual}%)
+                              </span>
+                            )}
+                            {(!it.conformidade || it.conformidade === 'MERCADO') && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-amber-100 text-amber-800">
+                                🟡 Cotação Mercado
+                              </span>
+                            )}
                           </td>
                           <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
                             R$ {parseFloat(it.valorTotal.toString()).toFixed(2)}
@@ -875,8 +956,66 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                     onClick={handleAddItemProposta}
                     className="text-xs text-amber-700 font-bold hover:underline"
                   >
-                    + Adicionar Linha
+                    + Adicionar Linha Manual
                   </button>
+                </div>
+
+                {/* BUSCA RÁPIDA NO SINAPI */}
+                <div className="relative bg-amber-50/70 p-3 rounded-xl border border-amber-200 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-amber-900">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Busca Rápida na Base SINAPI Oficial (RN - 12/2025)</span>
+                    </span>
+                    <span className="text-[10px] text-amber-700 font-normal">
+                      14.961 itens oficiais com preços medianos RN
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Digite o código (ex: 88316) ou palavras-chave (ex: pintura latex, piso ceramica, disjuntor)..."
+                      value={buscaSinapi}
+                      onChange={(e) => setBuscaSinapi(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                    {buscandoSinapi && (
+                      <span className="absolute right-3 top-2 text-[10px] text-slate-400">Buscando...</span>
+                    )}
+                  </div>
+
+                  {/* RESULTADOS DA BUSCA */}
+                  {resultadosSinapi.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-300 rounded-xl shadow-xl max-h-56 overflow-y-auto z-50 divide-y divide-slate-100 text-xs">
+                      {resultadosSinapi.map((item) => (
+                        <div
+                          key={item.id}
+                          onClick={() => handleAdicionarItemDoSinapi(item)}
+                          className="p-2.5 hover:bg-amber-50 cursor-pointer flex items-center justify-between gap-3 transition-colors"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-amber-700">{item.codigo}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 font-semibold text-slate-600">
+                                {item.unidadeMedida}
+                              </span>
+                            </div>
+                            <p className="text-slate-800 font-medium truncate mt-0.5" title={item.descricao}>
+                              {item.descricao}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="font-mono font-bold text-slate-900 block">
+                              R$ {item.precoUnitario ? item.precoUnitario.toFixed(2) : '0,00'}
+                            </span>
+                            <span className="text-[10px] text-emerald-700 font-bold hover:underline">
+                              + Incluir na Proposta
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2 max-h-60 overflow-y-auto border border-slate-200 p-2 rounded-xl">

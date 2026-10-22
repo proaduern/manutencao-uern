@@ -29,6 +29,11 @@ export default function TabelasPrecosPage() {
   const [carregando, setCarregando] = useState(true);
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
 
+  // Busca em Tempo Real no Catálogo de Referência
+  const [termoPesquisa, setTermoPesquisa] = useState('');
+  const [itensPesquisados, setItensPesquisados] = useState<any[]>([]);
+  const [buscandoPesquisa, setBuscandoPesquisa] = useState(false);
+
   // Estados de Modais
   const [modalNovaTabela, setModalNovaTabela] = useState(false);
   const [modalNovoItem, setModalNovoItem] = useState(false);
@@ -102,6 +107,24 @@ export default function TabelasPrecosPage() {
 
     carregarDados();
   }, []);
+
+  useEffect(() => {
+    if (!termoPesquisa || termoPesquisa.trim().length < 2) {
+      setItensPesquisados([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setBuscandoPesquisa(true);
+      fetch(`/api/tabelas/buscar?q=${encodeURIComponent(termoPesquisa.trim())}&limite=50`)
+        .then((res) => res.json())
+        .then((data) => {
+          setItensPesquisados(data.itens || []);
+        })
+        .catch(() => setItensPesquisados([]))
+        .finally(() => setBuscandoPesquisa(false));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [termoPesquisa]);
 
   const salvarBdi = async (id: string) => {
     const val = bdiInputs[id];
@@ -814,8 +837,30 @@ export default function TabelasPrecosPage() {
 
           {/* Tabela de Insumos Cadastrados */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden space-y-2">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800 text-sm">Catálogo de Itens de Referência ({itens.length})</h3>
+            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm">
+                  Catálogo de Itens de Referência ({termoPesquisa ? itensPesquisados.length : itens.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {termoPesquisa
+                    ? `Filtrado por "${termoPesquisa}" (${itensPesquisados.length} itens encontrados)`
+                    : `Mostrando amostra de itens homologados. Digite ao lado para pesquisar nos 14.961 itens oficiais.`}
+                </p>
+              </div>
+
+              <div className="w-full sm:w-80 relative">
+                <input
+                  type="text"
+                  placeholder="Pesquisar por código (88316) ou descrição..."
+                  value={termoPesquisa}
+                  onChange={(e) => setTermoPesquisa(e.target.value)}
+                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs pr-8 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+                {buscandoPesquisa && (
+                  <span className="absolute right-2.5 top-2 text-[10px] text-slate-400">...</span>
+                )}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -838,14 +883,14 @@ export default function TabelasPrecosPage() {
                         Carregando itens...
                       </td>
                     </tr>
-                  ) : itens.length === 0 ? (
+                  ) : (termoPesquisa.trim().length >= 2 ? itensPesquisados : itens).length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
-                        Nenhum insumo cadastrado na base de dados.
+                        {termoPesquisa ? 'Nenhum item encontrado para esta busca.' : 'Nenhum insumo cadastrado na base de dados.'}
                       </td>
                     </tr>
                   ) : (
-                    itens.map((i) => (
+                    (termoPesquisa.trim().length >= 2 ? itensPesquisados : itens).map((i) => (
                       <tr key={i.id} className="hover:bg-slate-50/80 transition">
                         <td className="px-5 py-3 font-mono font-bold text-xs text-indigo-700">{i.codigo}</td>
                         <td className="px-5 py-3 text-xs text-slate-500">{i.tabela?.nome}</td>

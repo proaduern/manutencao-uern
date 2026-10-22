@@ -51,12 +51,91 @@ export async function GET(req: Request, { params }: RouteContext) {
       return NextResponse.json({ error: 'Demanda não encontrada' }, { status: 404 });
     }
 
+    // Enriquecer itens da proposta com checagem automática de conformidade SINAPI
+    let propostaEnriquecida = demanda.proposta;
+    if (demanda.proposta && demanda.proposta.itens && demanda.proposta.itens.length > 0) {
+      const codigos = demanda.proposta.itens
+        .map((it) => it.codigoItem?.trim())
+        .filter(Boolean) as string[];
+
+      const codigosExpandidos = new Set<string>();
+      for (const c of codigos) {
+        codigosExpandidos.add(c);
+        codigosExpandidos.add(`SINAPI-${c}`);
+        codigosExpandidos.add(`SINAPI-COMP-${c}`);
+        if (c.startsWith('SINAPI-COMP-')) codigosExpandidos.add(c.replace('SINAPI-COMP-', ''));
+        if (c.startsWith('SINAPI-')) codigosExpandidos.add(c.replace('SINAPI-', ''));
+      }
+
+      const itensRef = await prisma.itemReferencia.findMany({
+        where: {
+          codigo: { in: Array.from(codigosExpandidos) },
+        },
+        include: { tabela: { select: { nome: true, versao: true } } },
+      });
+
+      const refMap = new Map<string, any>();
+      for (const ir of itensRef) {
+        refMap.set(ir.codigo, ir);
+        const semPrefixo = ir.codigo.replace('SINAPI-COMP-', '').replace('SINAPI-', '');
+        refMap.set(semPrefixo, ir);
+      }
+
+      const itensComConformidade = demanda.proposta.itens.map((it) => {
+        const cod = it.codigoItem?.trim() || '';
+        const ref = refMap.get(cod);
+        let conformidade = 'MERCADO'; // Padrão caso não esteja no SINAPI
+        let diferencaPercentual: number | null = null;
+        let precoReferencia: number | null = null;
+
+        if (ref) {
+          precoReferencia = parseFloat(ref.precoUnitario.toString());
+          const unitarioProposto = parseFloat(it.valorUnitario.toString());
+          if (unitarioProposto <= precoReferencia) {
+            conformidade = 'CONFORME';
+          } else {
+            conformidade = 'SOBREPRECO';
+            diferencaPercentual =
+              precoReferencia > 0
+                ? parseFloat((((unitarioProposto - precoReferencia) / precoReferencia) * 100).toFixed(1))
+                : null;
+          }
+        }
+
+        return {
+          ...it,
+          referenciaOficial: ref
+            ? {
+                codigo: ref.codigo,
+                descricao: ref.descricao,
+                unidadeMedida: ref.unidadeMedida,
+                precoUnitario: precoReferencia,
+                tabelaNome: ref.tabela.nome,
+                tabelaVersao: ref.tabela.versao,
+              }
+            : null,
+          conformidade,
+          diferencaPercentual,
+        };
+      });
+
+      propostaEnriquecida = {
+        ...demanda.proposta,
+        itens: itensComConformidade as any,
+      };
+    }
+
+    const demandaRetorno = {
+      ...demanda,
+      proposta: propostaEnriquecida,
+    };
+
     // Avaliar situação de SLA e cumprimento de prazos em dias úteis
     const sla = avaliarSLAAgenda(demanda);
     const cotaInfo = await obterCotaUnidadeAgenda(demanda.agendaId, demanda.unidadeId);
 
     return NextResponse.json({
-      demanda,
+      demanda: demandaRetorno,
       sla,
       cotaInfo,
     });
