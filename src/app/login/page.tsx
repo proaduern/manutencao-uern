@@ -67,6 +67,23 @@ function LoginForm() {
         </p>
       </div>
 
+      <a
+        href="https://portal-proad.vercel.app/hub"
+        className="mb-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-3 text-xs font-bold text-slate-950 shadow-md transition hover:brightness-105"
+      >
+        <Shield className="h-4 w-4" />
+        <span>Entrar pelo Portal PROAD (Acesso Único)</span>
+      </a>
+
+      <div className="relative mb-6 text-center">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-slate-200" />
+        </div>
+        <span className="relative bg-white px-3 text-[11px] font-medium text-slate-400">
+          ou acesse com e-mail e senha locais
+        </span>
+      </div>
+
       {erro && (
         <div className="mb-5 p-3.5 bg-rose-50 border border-rose-200 rounded-lg flex items-start space-x-2.5 text-xs text-rose-700">
           <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
