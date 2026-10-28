@@ -73,6 +73,9 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
       codigoItem: '',
       descricao: '',
       unidadeMedida: 'un',
+      tipoItem: 'SERVICO',
+      bdiPercentual: '23.86',
+      precoBase: '',
       quantidade: '1',
       valorUnitario: '',
     },
@@ -136,6 +139,9 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                   codigoItem: it.codigoItem || '',
                   descricao: it.descricao,
                   unidadeMedida: it.unidadeMedida,
+                  tipoItem: it.tipoItem || (p.regimeMaoObra === 'FIXA_RESIDENTE' ? 'INSUMO' : 'SERVICO'),
+                  bdiPercentual: it.bdiPercentual ? it.bdiPercentual.toString() : (it.tipoItem === 'INSUMO' ? '15.27' : '23.86'),
+                  precoBase: it.precoBase ? it.precoBase.toString() : '',
                   quantidade: it.quantidade.toString(),
                   valorUnitario: it.valorUnitario.toString(),
                 }))
@@ -199,6 +205,9 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
   };
 
   const handleAddItemProposta = () => {
+    const isResidente = regimeMaoObra === 'FIXA_RESIDENTE';
+    const tipo = isResidente ? 'INSUMO' : 'SERVICO';
+    const bdi = tipo === 'INSUMO' ? 15.27 : 23.86;
     setItensProposta([
       ...itensProposta,
       {
@@ -206,6 +215,9 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
         codigoItem: '',
         descricao: '',
         unidadeMedida: 'un',
+        tipoItem: tipo,
+        bdiPercentual: bdi.toString(),
+        precoBase: '',
         quantidade: '1',
         valorUnitario: '',
       },
@@ -235,34 +247,33 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
   }, [buscaSinapi]);
 
   const handleAdicionarItemDoSinapi = (itemSinapi: any) => {
+    const isResidente = regimeMaoObra === 'FIXA_RESIDENTE';
+    const tipo = isResidente ? 'INSUMO' : (itemSinapi.tipoItem === 'INSUMO' ? 'INSUMO' : 'SERVICO');
+    const bdi = tipo === 'INSUMO' ? 15.27 : 23.86;
+    const pBase = itemSinapi.precoUnitario ? parseFloat(itemSinapi.precoUnitario) : 0;
+    const pComBdi = itemSinapi.precoComBdi || (pBase * (1 + bdi / 100));
+
+    const novoItem = {
+      fonteReferencia: 'SINAPI',
+      codigoItem: itemSinapi.codigo,
+      descricao: itemSinapi.descricao,
+      unidadeMedida: itemSinapi.unidadeMedida || 'UN',
+      tipoItem: tipo,
+      bdiPercentual: bdi.toString(),
+      precoBase: pBase > 0 ? pBase.toFixed(2) : '',
+      quantidade: '1',
+      valorUnitario: pComBdi.toFixed(2),
+    };
+
     if (
       itensProposta.length === 1 &&
       !itensProposta[0].codigoItem &&
       !itensProposta[0].descricao &&
       !itensProposta[0].valorUnitario
     ) {
-      setItensProposta([
-        {
-          fonteReferencia: 'SINAPI',
-          codigoItem: itemSinapi.codigo,
-          descricao: itemSinapi.descricao,
-          unidadeMedida: itemSinapi.unidadeMedida || 'UN',
-          quantidade: '1',
-          valorUnitario: itemSinapi.precoUnitario ? itemSinapi.precoUnitario.toString() : '0',
-        },
-      ]);
+      setItensProposta([novoItem]);
     } else {
-      setItensProposta([
-        ...itensProposta,
-        {
-          fonteReferencia: 'SINAPI',
-          codigoItem: itemSinapi.codigo,
-          descricao: itemSinapi.descricao,
-          unidadeMedida: itemSinapi.unidadeMedida || 'UN',
-          quantidade: '1',
-          valorUnitario: itemSinapi.precoUnitario ? itemSinapi.precoUnitario.toString() : '0',
-        },
-      ]);
+      setItensProposta([...itensProposta, novoItem]);
     }
     setBuscaSinapi('');
     setResultadosSinapi([]);
@@ -271,6 +282,22 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
   const handleUpdateItemProposta = (index: number, campo: string, valor: string) => {
     const novos = [...itensProposta];
     novos[index][campo] = valor;
+
+    if (campo === 'tipoItem') {
+      const bdi = valor === 'INSUMO' ? 15.27 : 23.86;
+      novos[index].bdiPercentual = bdi.toString();
+      const pBase = parseFloat(novos[index].precoBase);
+      if (!isNaN(pBase) && pBase >= 0) {
+        novos[index].valorUnitario = (pBase * (1 + bdi / 100)).toFixed(2);
+      }
+    } else if (campo === 'precoBase') {
+      const pBase = parseFloat(valor);
+      const bdi = parseFloat(novos[index].bdiPercentual) || (novos[index].tipoItem === 'INSUMO' ? 15.27 : 23.86);
+      if (!isNaN(pBase) && pBase >= 0) {
+        novos[index].valorUnitario = (pBase * (1 + bdi / 100)).toFixed(2);
+      }
+    }
+
     setItensProposta(novos);
   };
 
@@ -625,26 +652,47 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                       <tr>
                         <th className="py-2.5 px-3">Fonte</th>
                         <th className="py-2.5 px-3">Código</th>
+                        <th className="py-2.5 px-3">Regime BDI</th>
                         <th className="py-2.5 px-4">Descrição do Serviço / Insumo</th>
                         <th className="py-2.5 px-3 text-center">Un.</th>
                         <th className="py-2.5 px-3 text-right">Qtd</th>
-                        <th className="py-2.5 px-3 text-right">Unitário Proposto</th>
+                        <th className="py-2.5 px-3 text-right">Preço Base</th>
+                        <th className="py-2.5 px-3 text-right">Unitário c/ BDI</th>
                         <th className="py-2.5 px-3 text-center">Checagem SINAPI (RN)</th>
                         <th className="py-2.5 px-3 text-right">Valor Total (R$)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {demanda.proposta.itens.map((it: any) => (
-                        <tr key={it.id} className="hover:bg-slate-50">
-                          <td className="py-2 px-3 font-semibold text-slate-700">{it.fonteReferencia}</td>
-                          <td className="py-2 px-3 font-mono text-slate-500">{it.codigoItem || '-'}</td>
-                          <td className="py-2 px-4 font-medium text-slate-900">{it.descricao}</td>
-                          <td className="py-2 px-3 text-center text-slate-500">{it.unidadeMedida}</td>
-                          <td className="py-2 px-3 text-right font-mono">{parseFloat(it.quantidade.toString()).toFixed(2)}</td>
-                          <td className="py-2 px-3 text-right font-mono font-medium">
-                            R$ {parseFloat(it.valorUnitario.toString()).toFixed(2)}
-                          </td>
-                          <td className="py-2 px-3 text-center">
+                      {demanda.proposta.itens.map((it: any) => {
+                        const isServico = it.tipoItem === 'SERVICO';
+                        const bdiPct = it.bdiPercentual ? parseFloat(it.bdiPercentual.toString()) : (isServico ? 23.86 : 15.27);
+                        const precoBase = it.precoBase ? parseFloat(it.precoBase.toString()) : (parseFloat(it.valorUnitario.toString()) / (1 + bdiPct / 100));
+
+                        return (
+                          <tr key={it.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-semibold text-slate-700">{it.fonteReferencia}</td>
+                            <td className="py-2 px-3 font-mono text-slate-500">{it.codigoItem || '-'}</td>
+                            <td className="py-2 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  isServico
+                                    ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                    : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                }`}
+                              >
+                                {isServico ? 'SERVIÇO (23,86%)' : 'INSUMO (15,27%)'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-4 font-medium text-slate-900">{it.descricao}</td>
+                            <td className="py-2 px-3 text-center text-slate-500">{it.unidadeMedida}</td>
+                            <td className="py-2 px-3 text-right font-mono">{parseFloat(it.quantidade.toString()).toFixed(2)}</td>
+                            <td className="py-2 px-3 text-right font-mono text-slate-500">
+                              R$ {precoBase.toFixed(2)}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-medium">
+                              R$ {parseFloat(it.valorUnitario.toString()).toFixed(2)}
+                            </td>
+                            <td className="py-2 px-3 text-center">
                             {it.conformidade === 'CONFORME' && (
                               <span
                                 className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800"
@@ -671,7 +719,8 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                             R$ {parseFloat(it.valorTotal.toString()).toFixed(2)}
                           </td>
                         </tr>
-                      ))}
+                      );
+                    })}
                     </tbody>
                   </table>
                 </div>
@@ -908,7 +957,24 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                   <label className="font-semibold text-slate-700">Regime de Mão de Obra *</label>
                   <select
                     value={regimeMaoObra}
-                    onChange={(e: any) => setRegimeMaoObra(e.target.value)}
+                    onChange={(e: any) => {
+                      const novoRegime = e.target.value;
+                      setRegimeMaoObra(novoRegime);
+                      if (novoRegime === 'FIXA_RESIDENTE') {
+                        setItensProposta((prev) =>
+                          prev.map((it) => {
+                            const pBase = parseFloat(it.precoBase) || (parseFloat(it.valorUnitario) / (1 + (parseFloat(it.bdiPercentual) || 23.86) / 100));
+                            return {
+                              ...it,
+                              tipoItem: 'INSUMO',
+                              bdiPercentual: '15.27',
+                              precoBase: !isNaN(pBase) && pBase > 0 ? pBase.toFixed(2) : it.precoBase,
+                              valorUnitario: !isNaN(pBase) && pBase > 0 ? (pBase * 1.1527).toFixed(2) : it.valorUnitario,
+                            };
+                          })
+                        );
+                      }
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-semibold"
                   >
                     <option value="EVENTUAL">Serviço Eventual (Mão de Obra Incorporada no SINAPI)</option>
@@ -1018,13 +1084,25 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                   )}
                 </div>
 
+                <div className="grid grid-cols-12 gap-1.5 px-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  <span className="col-span-1">Fonte</span>
+                  <span className="col-span-1">Código</span>
+                  <span className="col-span-3">Descrição</span>
+                  <span className="col-span-2">Regime BDI</span>
+                  <span className="col-span-1 text-center">Un.</span>
+                  <span className="col-span-1 text-right">Qtd</span>
+                  <span className="col-span-1 text-right">Base (R$)</span>
+                  <span className="col-span-1 text-right">c/ BDI (R$)</span>
+                  <span className="col-span-1 text-center">Ações</span>
+                </div>
+
                 <div className="space-y-2 max-h-60 overflow-y-auto border border-slate-200 p-2 rounded-xl">
                   {itensProposta.map((it, idx) => (
-                    <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-lg text-xs">
+                    <div key={idx} className="grid grid-cols-12 gap-1.5 items-center bg-slate-50 p-2 rounded-lg text-xs">
                       <select
                         value={it.fonteReferencia}
                         onChange={(e) => handleUpdateItemProposta(idx, 'fonteReferencia', e.target.value)}
-                        className="col-span-2 px-2 py-1 bg-white border border-slate-200 rounded"
+                        className="col-span-1 px-1.5 py-1 bg-white border border-slate-200 rounded text-[11px]"
                       >
                         <option value="SINAPI">SINAPI</option>
                         <option value="ORSE">ORSE</option>
@@ -1038,7 +1116,7 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                         placeholder="Cód."
                         value={it.codigoItem}
                         onChange={(e) => handleUpdateItemProposta(idx, 'codigoItem', e.target.value)}
-                        className="col-span-2 px-2 py-1 bg-white border border-slate-200 rounded font-mono"
+                        className="col-span-1 px-1.5 py-1 bg-white border border-slate-200 rounded font-mono text-[11px]"
                       />
 
                       <input
@@ -1047,15 +1125,28 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                         required
                         value={it.descricao}
                         onChange={(e) => handleUpdateItemProposta(idx, 'descricao', e.target.value)}
-                        className="col-span-4 px-2 py-1 bg-white border border-slate-200 rounded"
+                        className="col-span-3 px-2 py-1 bg-white border border-slate-200 rounded text-xs"
                       />
+
+                      <select
+                        value={it.tipoItem || 'SERVICO'}
+                        onChange={(e) => handleUpdateItemProposta(idx, 'tipoItem', e.target.value)}
+                        className={`col-span-2 px-1.5 py-1 bg-white border rounded font-semibold text-[11px] ${
+                          it.tipoItem === 'INSUMO'
+                            ? 'text-blue-700 border-blue-200 bg-blue-50/50'
+                            : 'text-purple-700 border-purple-200 bg-purple-50/50'
+                        }`}
+                      >
+                        <option value="INSUMO">Insumo (15,27%)</option>
+                        <option value="SERVICO">Serviço (23,86%)</option>
+                      </select>
 
                       <input
                         type="text"
                         placeholder="Un."
                         value={it.unidadeMedida}
                         onChange={(e) => handleUpdateItemProposta(idx, 'unidadeMedida', e.target.value)}
-                        className="col-span-1 px-1 py-1 bg-white border border-slate-200 rounded text-center"
+                        className="col-span-1 px-1 py-1 bg-white border border-slate-200 rounded text-center text-xs"
                       />
 
                       <input
@@ -1065,23 +1156,33 @@ export default function DemandaDetalhePage({ params }: DemandaDetalhePageProps) 
                         required
                         value={it.quantidade}
                         onChange={(e) => handleUpdateItemProposta(idx, 'quantidade', e.target.value)}
-                        className="col-span-1 px-1 py-1 bg-white border border-slate-200 rounded text-right font-mono"
+                        className="col-span-1 px-1 py-1 bg-white border border-slate-200 rounded text-right font-mono text-xs"
                       />
 
                       <input
                         type="number"
                         step="0.01"
-                        placeholder="Valor Unit."
+                        placeholder="Base"
+                        value={it.precoBase || ''}
+                        onChange={(e) => handleUpdateItemProposta(idx, 'precoBase', e.target.value)}
+                        className="col-span-1 px-1 py-1 bg-white border border-slate-200 rounded text-right font-mono text-xs"
+                      />
+
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="c/ BDI"
                         required
                         value={it.valorUnitario}
                         onChange={(e) => handleUpdateItemProposta(idx, 'valorUnitario', e.target.value)}
-                        className="col-span-1 px-1 py-1 bg-white border border-slate-200 rounded text-right font-mono"
+                        className="col-span-1 px-1 py-1 bg-white border border-indigo-200 rounded text-right font-mono font-bold text-indigo-900 text-xs"
                       />
 
                       <button
                         type="button"
                         onClick={() => handleRemoveItemProposta(idx)}
                         className="col-span-1 text-rose-500 font-bold hover:text-rose-700 text-center"
+                        title="Remover linha"
                       >
                         ✕
                       </button>

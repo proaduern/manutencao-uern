@@ -263,10 +263,17 @@ export async function PATCH(req: Request, { params }: RouteContext) {
         for (const it of itens) {
           const q = parseFloat(it.quantidade);
           const v = parseFloat(it.valorUnitario);
+          const tipoItem = it.tipoItem === 'INSUMO' ? 'INSUMO' : 'SERVICO';
+          const bdi = it.bdiPercentual ? parseFloat(it.bdiPercentual) : (tipoItem === 'INSUMO' ? 15.27 : 23.86);
+          const precoBase = it.precoBase ? parseFloat(it.precoBase) : (v / (1 + bdi / 100));
+
           await tx.agendaPropostaItem.create({
             data: {
               propostaId: proposta.id,
               fonteReferencia: it.fonteReferencia || 'SINAPI',
+              tipoItem,
+              bdiPercentual: bdi,
+              precoBase,
               codigoItem: it.codigoItem?.trim() || null,
               descricao: it.descricao.trim(),
               unidadeMedida: it.unidadeMedida?.trim() || 'un',

@@ -72,6 +72,20 @@ export default function TabelasPrecosPage() {
   const [workbookInstancia, setWorkbookInstancia] = useState<any>(null);
 
   const [bdiInputs, setBdiInputs] = useState<Record<string, string>>({});
+  const [bdiInsumosInputs, setBdiInsumosInputs] = useState<Record<string, string>>({});
+  const [bdiServicosInputs, setBdiServicosInputs] = useState<Record<string, string>>({});
+
+  // Modal de Reajuste Linear SINAPI (Interregno Anual)
+  const [modalReajuste, setModalReajuste] = useState(false);
+  const [formReajuste, setFormReajuste] = useState({
+    tabelaId: '',
+    percentualReajuste: '4.85',
+    modoReajuste: 'CLONAR_VERSAO', // 'CLONAR_VERSAO' ou 'ATUALIZAR_DIRETO'
+    novoNomeVersao: '',
+    novaVersao: '2026/12',
+    processoApostilamento: '',
+  });
+  const [executandoReajuste, setExecutandoReajuste] = useState(false);
 
   const carregarDados = () => {
     setCarregando(true);
@@ -86,10 +100,16 @@ export default function TabelasPrecosPage() {
         }
 
         const bdis: any = {};
+        const bdisInsumos: any = {};
+        const bdisServicos: any = {};
         for (const t of data.tabelas || []) {
           bdis[t.id] = t.bdiPercentual ? parseFloat(t.bdiPercentual).toString() : '';
+          bdisInsumos[t.id] = t.bdiInsumos ? parseFloat(t.bdiInsumos).toString() : '15.27';
+          bdisServicos[t.id] = t.bdiServicos ? parseFloat(t.bdiServicos).toString() : '23.86';
         }
         setBdiInputs(bdis);
+        setBdiInsumosInputs(bdisInsumos);
+        setBdiServicosInputs(bdisServicos);
         setCarregando(false);
       })
       .catch((err) => {
@@ -127,7 +147,8 @@ export default function TabelasPrecosPage() {
   }, [termoPesquisa]);
 
   const salvarBdi = async (id: string) => {
-    const val = bdiInputs[id];
+    const valInsumos = bdiInsumosInputs[id] ? parseFloat(bdiInsumosInputs[id]) : 15.27;
+    const valServicos = bdiServicosInputs[id] ? parseFloat(bdiServicosInputs[id]) : 23.86;
     try {
       const res = await fetch('/api/admin/tabelas', {
         method: 'POST',
@@ -135,15 +156,84 @@ export default function TabelasPrecosPage() {
         body: JSON.stringify({
           acao: 'SALVAR_BDI',
           tabelaId: id,
-          bdiPercentual: val,
+          bdiInsumos: valInsumos,
+          bdiServicos: valServicos,
+          bdiPercentual: valServicos,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setMensagem({ tipo: 'sucesso', texto: 'BDI da tabela atualizado com sucesso!' });
+      setMensagem({ tipo: 'sucesso', texto: 'Taxas de BDI (Insumos 15,27% e Serviços 23,86%) salvas com sucesso!' });
       carregarDados();
     } catch (err: any) {
       setMensagem({ tipo: 'erro', texto: err.message });
+    }
+  };
+
+  const alterarTipoItem = async (itemId: string, novoTipo: 'INSUMO' | 'SERVICO') => {
+    try {
+      const res = await fetch('/api/admin/tabelas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'ALTERAR_TIPO_ITEM',
+          itemId,
+          tipoItem: novoTipo,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setItens((prev) =>
+        prev.map((it) => (it.id === itemId ? { ...it, tipoItem: novoTipo } : it))
+      );
+      setItensPesquisados((prev) =>
+        prev.map((it) => (it.id === itemId ? { ...it, tipoItem: novoTipo } : it))
+      );
+      setMensagem({
+        tipo: 'sucesso',
+        texto: `Item alterado com sucesso para ${novoTipo === 'INSUMO' ? 'Insumo (BDI 15,27%)' : 'Serviço c/ MO (BDI 23,86%)'}.`,
+      });
+    } catch (err: any) {
+      setMensagem({ tipo: 'erro', texto: err.message });
+    }
+  };
+
+  const executarReajusteLinear = async () => {
+    if (!formReajuste.tabelaId) return alert('Selecione uma tabela de referência.');
+    const pct = parseFloat(formReajuste.percentualReajuste);
+    if (isNaN(pct) || pct === 0) return alert('Informe um percentual de reajuste válido.');
+
+    if (!confirm(`Confirma a aplicação do reajuste linear de ${pct > 0 ? '+' : ''}${pct}% em lote para TODOS os itens desta tabela?`)) return;
+
+    try {
+      setExecutandoReajuste(true);
+      const res = await fetch('/api/admin/tabelas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'REAJUSTE_LINEAR_LOTE',
+          tabelaId: formReajuste.tabelaId,
+          percentualReajuste: pct,
+          modoReajuste: formReajuste.modoReajuste,
+          novoNomeVersao: formReajuste.novoNomeVersao,
+          novaVersao: formReajuste.novaVersao,
+          processoApostilamento: formReajuste.processoApostilamento,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setMensagem({
+        tipo: 'sucesso',
+        texto: data.mensagem || `Reajuste linear de ${pct}% aplicado com sucesso!`,
+      });
+      setModalReajuste(false);
+      carregarDados();
+    } catch (err: any) {
+      setMensagem({ tipo: 'erro', texto: err.message });
+    } finally {
+      setExecutandoReajuste(false);
     }
   };
 
@@ -580,6 +670,23 @@ export default function TabelasPrecosPage() {
 
             <div className="flex items-center gap-3">
               <button
+                onClick={() => {
+                  const ativa = tabelas.find((t) => t.ativa) || tabelas[0];
+                  if (ativa) {
+                    setFormReajuste((prev) => ({
+                      ...prev,
+                      tabelaId: ativa.id,
+                      novoNomeVersao: `${ativa.nome} (Reajuste Anual +4,85%)`,
+                    }));
+                  }
+                  setModalReajuste(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold rounded-lg shadow-sm transition"
+              >
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                Reajuste Anual Linear SINAPI
+              </button>
+              <button
                 onClick={() => setModalNovaTabela(true)}
                 className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg shadow-sm transition"
               >
@@ -619,14 +726,21 @@ export default function TabelasPrecosPage() {
             </div>
           )}
 
-          {/* Cards das Tabelas e BDI */}
+          {/* Cards das Tabelas e BDI Diferenciado */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {tabelas.map((t) => (
-              <div key={t.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+              <div key={t.id} className={`bg-white p-5 rounded-xl border ${t.ativa ? 'border-indigo-300 shadow-md ring-1 ring-indigo-200' : 'border-slate-200 shadow-sm'} space-y-3`}>
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="font-bold text-slate-800 text-sm">{t.nome}</h3>
-                    <p className="text-xs text-slate-400">{t._count?.itens || 0} itens cadastrados</p>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-slate-800 text-sm">{t.nome}</h3>
+                      {t.ativa && (
+                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full">
+                          ATIVA
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">{t._count?.itens || 0} itens cadastrados {t.versao ? `• Versão ${t.versao}` : ''}</p>
                   </div>
                   <button
                     onClick={() => excluirTabela(t.id, t.nome)}
@@ -637,23 +751,53 @@ export default function TabelasPrecosPage() {
                   </button>
                 </div>
 
-                <div className="pt-2 border-t flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-600 font-semibold">BDI (%):</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={bdiInputs[t.id] ?? ''}
-                      onChange={(e) => setBdiInputs({ ...bdiInputs, [t.id]: e.target.value })}
-                      className="w-20 px-2 py-1 border rounded text-xs text-slate-800 text-right outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
+                <div className="pt-2 border-t space-y-2">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Taxas de BDI Contratuais Diferenciadas
                   </div>
+                  
+                  {/* BDI Insumos (Materiais puros) */}
+                  <div className="flex items-center justify-between gap-2 bg-blue-50/60 p-2 rounded-lg border border-blue-100">
+                    <div className="text-xs">
+                      <span className="font-semibold text-blue-900 block">BDI Insumos (Materiais):</span>
+                      <span className="text-[10px] text-blue-600">Peças sem mão de obra</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={bdiInsumosInputs[t.id] ?? '15.27'}
+                        onChange={(e) => setBdiInsumosInputs({ ...bdiInsumosInputs, [t.id]: e.target.value })}
+                        className="w-16 px-2 py-1 border border-blue-200 rounded text-xs text-blue-900 font-bold text-right outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                      />
+                      <span className="text-xs font-bold text-blue-700">%</span>
+                    </div>
+                  </div>
+
+                  {/* BDI Serviços (Mão de Obra Integrada com Insumos) */}
+                  <div className="flex items-center justify-between gap-2 bg-purple-50/60 p-2 rounded-lg border border-purple-100">
+                    <div className="text-xs">
+                      <span className="font-semibold text-purple-900 block">BDI Serviços:</span>
+                      <span className="text-[10px] text-purple-600">Insumos + Mão de Obra</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={bdiServicosInputs[t.id] ?? '23.86'}
+                        onChange={(e) => setBdiServicosInputs({ ...bdiServicosInputs, [t.id]: e.target.value })}
+                        className="w-16 px-2 py-1 border border-purple-200 rounded text-xs text-purple-900 font-bold text-right outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+                      />
+                      <span className="text-xs font-bold text-purple-700">%</span>
+                    </div>
+                  </div>
+
                   <button
                     onClick={() => salvarBdi(t.id)}
-                    className="px-3 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded text-xs font-semibold flex items-center gap-1"
+                    className="w-full mt-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border border-indigo-200 transition"
                   >
                     <Save className="w-3.5 h-3.5" />
-                    Salvar
+                    Salvar Taxas de BDI (15,27% / 23,86%)
                   </button>
                 </div>
               </div>
@@ -871,7 +1015,9 @@ export default function TabelasPrecosPage() {
                     <th className="px-5 py-3">Tabela</th>
                     <th className="px-5 py-3">Descrição do Insumo / Serviço</th>
                     <th className="px-5 py-3">UN</th>
-                    <th className="px-5 py-3">Preço Unitário (R$)</th>
+                    <th className="px-5 py-3">Classificação (BDI)</th>
+                    <th className="px-5 py-3 text-right">Preço Base (R$)</th>
+                    <th className="px-5 py-3 text-right">Preço c/ BDI (R$)</th>
                     <th className="px-5 py-3">Status</th>
                     <th className="px-5 py-3 text-right">Ações</th>
                   </tr>
@@ -879,13 +1025,13 @@ export default function TabelasPrecosPage() {
                 <tbody className="divide-y divide-slate-100">
                   {carregando ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
+                      <td colSpan={9} className="px-5 py-8 text-center text-slate-400">
                         Carregando itens...
                       </td>
                     </tr>
                   ) : (termoPesquisa.trim().length >= 2 ? itensPesquisados : itens).length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-8 text-center text-slate-400">
+                      <td colSpan={9} className="px-5 py-8 text-center text-slate-400">
                         {termoPesquisa ? 'Nenhum item encontrado para esta busca.' : 'Nenhum insumo cadastrado na base de dados.'}
                       </td>
                     </tr>
@@ -896,8 +1042,28 @@ export default function TabelasPrecosPage() {
                         <td className="px-5 py-3 text-xs text-slate-500">{i.tabela?.nome}</td>
                         <td className="px-5 py-3 text-xs text-slate-800 max-w-md">{i.descricao}</td>
                         <td className="px-5 py-3 text-xs font-semibold">{i.unidadeMedida}</td>
-                        <td className="px-5 py-3 font-mono font-semibold text-xs text-slate-800">
+                        <td className="px-5 py-3">
+                          <button
+                            onClick={() => alterarTipoItem(i.id, i.tipoItem === 'INSUMO' ? 'SERVICO' : 'INSUMO')}
+                            title="Clique para alternar entre Insumo (BDI 15,27%) e Serviço (BDI 23,86%)"
+                            className="inline-flex items-center gap-1 group"
+                          >
+                            {i.tipoItem === 'INSUMO' ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 group-hover:bg-blue-100 transition">
+                                INSUMO (15,27%)
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 group-hover:bg-purple-100 transition">
+                                SERVIÇO (23,86%)
+                              </span>
+                            )}
+                          </button>
+                        </td>
+                        <td className="px-5 py-3 font-mono font-medium text-xs text-slate-700 text-right">
                           R$ {parseFloat(i.precoUnitario).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-5 py-3 font-mono font-bold text-xs text-indigo-900 text-right">
+                          R$ {(parseFloat(i.precoUnitario) * (1 + (i.tipoItem === 'INSUMO' ? 0.1527 : 0.2386))).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-5 py-3">
                           <span
@@ -1104,6 +1270,180 @@ export default function TabelasPrecosPage() {
               </div>
             </div>
           )}
+          {/* Modal Reajuste Linear SINAPI (Interregno Anual) */}
+          {modalReajuste && (
+            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 space-y-4">
+                <div className="flex justify-between items-center border-b pb-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-amber-600" />
+                    <h3 className="text-base font-bold text-slate-800">Reajuste Anual Linear da SINAPI</h3>
+                  </div>
+                  <button onClick={() => setModalReajuste(false)} className="text-slate-400 hover:text-slate-600 text-xl font-bold">
+                    ✕
+                  </button>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-700" />
+                    Regra Contratual (Interregno Mínimo de 1 Ano):
+                  </p>
+                  <p className="text-amber-800">
+                    A tabela-base de referência contratual é <strong>Dezembro/2025</strong>. Ao completar o interregno anual de execução, o contrato autoriza o reajuste linear em todos os itens conforme a variação acumulada do índice SINAPI no período.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Tabela de Origem Base (Dez/25)</label>
+                    <select
+                      value={formReajuste.tabelaId}
+                      onChange={(e) => setFormReajuste({ ...formReajuste, tabelaId: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-xs bg-white text-slate-800 outline-none focus:ring-1 focus:ring-amber-500"
+                    >
+                      {tabelas.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.nome} ({t._count?.itens || 0} itens) {t.ativa ? '★ ATIVA' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Variação SINAPI Acumulada (%)</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Ex: 4.85"
+                          value={formReajuste.percentualReajuste}
+                          onChange={(e) => setFormReajuste({ ...formReajuste, percentualReajuste: e.target.value })}
+                          className="w-full px-3 py-2 border rounded-lg text-xs font-bold text-amber-900 outline-none focus:ring-1 focus:ring-amber-500 pr-7"
+                        />
+                        <span className="absolute right-2.5 top-2 text-xs font-bold text-slate-400">%</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Mês/Ano do Reajuste</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 2026/12"
+                        value={formReajuste.novaVersao}
+                        onChange={(e) => setFormReajuste({ ...formReajuste, novaVersao: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg text-xs text-slate-800 outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Processo SEI / Apostilamento</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: 04410038.000993/2025-32 (1º Termo de Apostilamento)"
+                      value={formReajuste.processoApostilamento}
+                      onChange={(e) => setFormReajuste({ ...formReajuste, processoApostilamento: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-xs text-slate-800 outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Modo de Aplicação</label>
+                    <div className="space-y-1.5">
+                      <label className="flex items-start gap-2 p-2.5 border rounded-lg cursor-pointer hover:bg-slate-50 transition border-amber-300 bg-amber-50/40">
+                        <input
+                          type="radio"
+                          name="modoReajuste"
+                          value="CLONAR_VERSAO"
+                          checked={formReajuste.modoReajuste === 'CLONAR_VERSAO'}
+                          onChange={() => setFormReajuste({ ...formReajuste, modoReajuste: 'CLONAR_VERSAO' })}
+                          className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                        />
+                        <div className="text-xs">
+                          <span className="font-bold text-slate-800 block">Gerar Nova Versão Reajustada (Recomendado / Auditável)</span>
+                          <span className="text-slate-500 text-[11px]">
+                            Preserva a tabela original (Dez/25) intacta no banco para histórico de ordens passadas e cria a nova versão reajustada como a ativa.
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="flex items-start gap-2 p-2.5 border rounded-lg cursor-pointer hover:bg-slate-50 transition border-slate-200">
+                        <input
+                          type="radio"
+                          name="modoReajuste"
+                          value="ATUALIZAR_DIRETO"
+                          checked={formReajuste.modoReajuste === 'ATUALIZAR_DIRETO'}
+                          onChange={() => setFormReajuste({ ...formReajuste, modoReajuste: 'ATUALIZAR_DIRETO' })}
+                          className="mt-0.5 text-slate-600 focus:ring-slate-500"
+                        />
+                        <div className="text-xs">
+                          <span className="font-bold text-slate-800 block">Atualizar Diretamente na Tabela Atual</span>
+                          <span className="text-slate-500 text-[11px]">
+                            Sobrescreve os preços unitários da tabela selecionada sem criar nova tabela.
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Simulação em Tempo Real */}
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1 text-xs">
+                    <span className="font-bold text-slate-700 block">Simulação de Exemplo (Item R$ 100,00 base):</span>
+                    <div className="grid grid-cols-3 gap-2 pt-1 font-mono text-[11px]">
+                      <div>
+                        <span className="text-slate-500 block text-[10px]">Preço Base Reajustado:</span>
+                        <strong className="text-slate-900">
+                          R$ {(100 * (1 + (parseFloat(formReajuste.percentualReajuste || '0') / 100))).toFixed(2)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-blue-600 block text-[10px]">C/ BDI Insumos (15,27%):</span>
+                        <strong className="text-blue-900">
+                          R$ {(100 * (1 + (parseFloat(formReajuste.percentualReajuste || '0') / 100)) * 1.1527).toFixed(2)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-purple-600 block text-[10px]">C/ BDI Serviços (23,86%):</span>
+                        <strong className="text-purple-900">
+                          R$ {(100 * (1 + (parseFloat(formReajuste.percentualReajuste || '0') / 100)) * 1.2386).toFixed(2)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 border-t pt-3">
+                  <button
+                    onClick={() => setModalReajuste(false)}
+                    disabled={executandoReajuste}
+                    className="px-4 py-2 border rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={executarReajusteLinear}
+                    disabled={executandoReajuste}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+                  >
+                    {executandoReajuste ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        Reajustando todos os itens...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Aplicar Reajuste Linear em Lote
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
         </main>
       </div>
     </div>

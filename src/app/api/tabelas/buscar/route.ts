@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/tabelas/buscar?q=...&tabelaId=...&limite=25
  * Endpoint ultra-rápido para busca e autocomplete de itens da tabela SINAPI / referencial oficial.
- * Suporta busca por código numérico ou múltiplas palavras sem distinção de acentos (unaccent).
+ * Retorna tipoItem ("INSUMO" ou "SERVICO") e os BDIs correspondentes (15,27% vs 23,86%).
  */
 export async function GET(req: Request) {
   try {
@@ -57,10 +57,13 @@ export async function GET(req: Request) {
         i.descricao,
         i."unidadeMedida",
         i."precoUnitario",
+        COALESCE(i."tipoItem", 'SERVICO') AS "tipoItem",
         i.status,
         i."tabelaId",
         t.nome AS "tabelaNome",
         t.versao AS "tabelaVersao",
+        COALESCE(t."bdiInsumos", 15.27) AS "bdiInsumos",
+        COALESCE(t."bdiServicos", 23.86) AS "bdiServicos",
         t."bdiPercentual" AS "tabelaBdi"
       FROM itens_referencias i
       JOIN tabelas_referencias t ON t.id = i."tabelaId"
@@ -71,20 +74,34 @@ export async function GET(req: Request) {
 
     const rawItens: any[] = await prisma.$queryRawUnsafe(sql);
 
-    const itens = rawItens.map((it) => ({
-      id: it.id,
-      codigo: it.codigo,
-      descricao: it.descricao,
-      unidadeMedida: it.unidadeMedida,
-      precoUnitario: parseFloat(it.precoUnitario) || 0,
-      status: it.status,
-      tabela: {
-        id: it.tabelaId,
-        nome: it.tabelaNome,
-        versao: it.tabelaVersao,
-        bdiPercentual: it.tabelaBdi ? parseFloat(it.tabelaBdi) : null,
-      },
-    }));
+    const itens = rawItens.map((it) => {
+      const precoUnit = parseFloat(it.precoUnitario) || 0;
+      const tipo = it.tipoItem === 'INSUMO' ? 'INSUMO' : 'SERVICO';
+      const bdiAplicavel = tipo === 'INSUMO' 
+        ? (it.bdiInsumos ? parseFloat(it.bdiInsumos) : 15.27)
+        : (it.bdiServicos ? parseFloat(it.bdiServicos) : 23.86);
+      
+      const precoComBdi = precoUnit * (1 + bdiAplicavel / 100);
+
+      return {
+        id: it.id,
+        codigo: it.codigo,
+        descricao: it.descricao,
+        unidadeMedida: it.unidadeMedida,
+        precoUnitario: precoUnit,
+        tipoItem: tipo,
+        bdiAplicavel,
+        precoComBdi: parseFloat(precoComBdi.toFixed(2)),
+        status: it.status,
+        tabela: {
+          id: it.tabelaId,
+          nome: it.tabelaNome,
+          versao: it.tabelaVersao,
+          bdiInsumos: it.bdiInsumos ? parseFloat(it.bdiInsumos) : 15.27,
+          bdiServicos: it.bdiServicos ? parseFloat(it.bdiServicos) : 23.86,
+        },
+      };
+    });
 
     return NextResponse.json({
       success: true,

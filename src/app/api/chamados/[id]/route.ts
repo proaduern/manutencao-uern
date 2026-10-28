@@ -185,6 +185,10 @@ export async function PATCH(req: Request, { params }: RouteContext) {
 
           const qtd = parseFloat(item.quantidade);
           const val = parseFloat(item.valorUnitario);
+          const tipoItem = item.tipoItem === 'SERVICO' ? 'SERVICO' : 'INSUMO';
+          const bdiPercentual = item.bdiPercentual ? parseFloat(item.bdiPercentual) : (tipoItem === 'INSUMO' ? 15.27 : 23.86);
+          const precoBase = item.precoBase ? parseFloat(item.precoBase) : (val / (1 + bdiPercentual / 100));
+
           await tx.chamadoInsumo.create({
             data: {
               chamadoId: chamado.id,
@@ -196,6 +200,9 @@ export async function PATCH(req: Request, { params }: RouteContext) {
               quantidade: qtd,
               valorUnitario: val,
               valorTotal: qtd * val,
+              tipoItem,
+              bdiPercentual,
+              precoBase,
             },
           });
         }
@@ -366,6 +373,10 @@ export async function PATCH(req: Request, { params }: RouteContext) {
           for (const item of itensExecutados) {
             const qtd = parseFloat(item.quantidade);
             const val = parseFloat(item.valorUnitario);
+            const tipoItem = item.tipoItem === 'SERVICO' ? 'SERVICO' : 'INSUMO';
+            const bdiPercentual = item.bdiPercentual ? parseFloat(item.bdiPercentual) : (tipoItem === 'INSUMO' ? 15.27 : 23.86);
+            const precoBase = item.precoBase ? parseFloat(item.precoBase) : (val / (1 + bdiPercentual / 100));
+
             await tx.chamadoInsumo.create({
               data: {
                 chamadoId: chamado.id,
@@ -376,6 +387,9 @@ export async function PATCH(req: Request, { params }: RouteContext) {
                 quantidade: qtd,
                 valorUnitario: val,
                 valorTotal: qtd * val,
+                tipoItem,
+                bdiPercentual,
+                precoBase,
               },
             });
           }

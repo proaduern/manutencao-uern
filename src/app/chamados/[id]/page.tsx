@@ -51,6 +51,9 @@ export default function DetalheChamadoPage({ params }: Props) {
   const [novoUn, setNovoUn] = useState('un');
   const [novoQtd, setNovoQtd] = useState('');
   const [novoVal, setNovoVal] = useState('');
+  const [novoTipoItem, setNovoTipoItem] = useState<'INSUMO' | 'SERVICO'>('INSUMO');
+  const [novoPrecoBase, setNovoPrecoBase] = useState('');
+  const [novoBdiPercentual, setNovoBdiPercentual] = useState('15.27');
 
   // Busca em Tempo Real no Catálogo SINAPI Oficial
   const [buscaSinapiChamado, setBuscaSinapiChamado] = useState('');
@@ -120,6 +123,25 @@ export default function DetalheChamadoPage({ params }: Props) {
     carregarDados();
   }, [params.id]);
 
+  const alterarTipoItemNovo = (tipo: 'INSUMO' | 'SERVICO') => {
+    setNovoTipoItem(tipo);
+    const bdi = tipo === 'INSUMO' ? 15.27 : 23.86;
+    setNovoBdiPercentual(bdi.toString());
+    const base = parseFloat(novoPrecoBase);
+    if (!isNaN(base) && base > 0) {
+      setNovoVal((base * (1 + bdi / 100)).toFixed(2));
+    }
+  };
+
+  const alterarPrecoBaseNovo = (valor: string) => {
+    setNovoPrecoBase(valor);
+    const base = parseFloat(valor);
+    const bdi = parseFloat(novoBdiPercentual) || (novoTipoItem === 'INSUMO' ? 15.27 : 23.86);
+    if (!isNaN(base) && base >= 0) {
+      setNovoVal((base * (1 + bdi / 100)).toFixed(2));
+    }
+  };
+
   // Adicionar item ao orçamento local
   const adicionarItemOrcamento = () => {
     if (!novoCod || !novoDesc) return alert('Informe código e descrição do insumo.');
@@ -128,12 +150,18 @@ export default function DetalheChamadoPage({ params }: Props) {
     if (!qtd || qtd <= 0) return alert('A quantidade deve ser maior que zero.');
     if (isNaN(val) || val < 0) return alert('Informe um valor unitário válido.');
 
+    const bdi = parseFloat(novoBdiPercentual) || (novoTipoItem === 'INSUMO' ? 15.27 : 23.86);
+    const pBase = parseFloat(novoPrecoBase) || (val / (1 + bdi / 100));
+
     setItensOrcamento([
       ...itensOrcamento,
       {
         codigo: novoCod,
         descricao: novoDesc,
         unidadeMedida: novoUn || 'un',
+        tipoItem: novoTipoItem,
+        bdiPercentual: bdi,
+        precoBase: pBase,
         quantidade: qtd,
         valorUnitario: val,
         valorTotal: qtd * val,
@@ -144,6 +172,7 @@ export default function DetalheChamadoPage({ params }: Props) {
     setNovoDesc('');
     setNovoQtd('');
     setNovoVal('');
+    setNovoPrecoBase('');
   };
 
   // Selecionar item rápido do SINAPI
@@ -151,7 +180,15 @@ export default function DetalheChamadoPage({ params }: Props) {
     setNovoCod(item.codigo);
     setNovoDesc(item.descricao);
     setNovoUn(item.unidadeMedida);
-    setNovoVal(parseFloat(item.precoUnitario).toString());
+    const tipo = item.tipoItem === 'SERVICO' ? 'SERVICO' : 'INSUMO';
+    const bdi = item.bdiAplicavel || (tipo === 'INSUMO' ? 15.27 : 23.86);
+    const pBase = item.precoUnitario ? parseFloat(item.precoUnitario) : 0;
+    const pComBdi = item.precoComBdi || (pBase * (1 + bdi / 100));
+
+    setNovoTipoItem(tipo);
+    setNovoBdiPercentual(bdi.toString());
+    setNovoPrecoBase(pBase.toFixed(2));
+    setNovoVal(pComBdi.toFixed(2));
   };
 
   useEffect(() => {
@@ -557,28 +594,52 @@ export default function DetalheChamadoPage({ params }: Props) {
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-semibold">
+                    <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 font-semibold">
                       <th className="py-2.5 px-3">Código</th>
-                      <th className="py-2.5 px-3">Descrição do Insumo</th>
-                      <th className="py-2.5 px-3">Un.</th>
+                      <th className="py-2.5 px-3">Regime BDI</th>
+                      <th className="py-2.5 px-3">Descrição do Insumo / Serviço</th>
+                      <th className="py-2.5 px-3 text-center">Un.</th>
                       <th className="py-2.5 px-3 text-right">Qtd</th>
-                      <th className="py-2.5 px-3 text-right">Unitário</th>
+                      <th className="py-2.5 px-3 text-right">Preço Base</th>
+                      <th className="py-2.5 px-3 text-right">Unitário c/ BDI</th>
                       <th className="py-2.5 px-3 text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {itensPrevistos.map((i: any) => (
-                      <tr key={i.id} className="hover:bg-slate-50/60">
-                        <td className="py-2.5 px-3 font-mono font-medium text-slate-600">{i.codigo}</td>
-                        <td className="py-2.5 px-3 text-slate-800">{i.descricao}</td>
-                        <td className="py-2.5 px-3 text-slate-600">{i.unidadeMedida}</td>
-                        <td className="py-2.5 px-3 text-right font-mono">{parseFloat(i.quantidade).toFixed(2)}</td>
-                        <td className="py-2.5 px-3 text-right font-mono">R$ {parseFloat(i.valorUnitario).toFixed(2)}</td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                          R$ {parseFloat(i.valorTotal).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
+                    {itensPrevistos.map((i: any) => {
+                      const isServico = i.tipoItem === 'SERVICO';
+                      const bdiPct = i.bdiPercentual ? parseFloat(i.bdiPercentual) : (isServico ? 23.86 : 15.27);
+                      const precoBase = i.precoBase ? parseFloat(i.precoBase) : (parseFloat(i.valorUnitario) / (1 + bdiPct / 100));
+
+                      return (
+                        <tr key={i.id} className="hover:bg-slate-50/60">
+                          <td className="py-2.5 px-3 font-mono font-medium text-slate-600">{i.codigo}</td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                isServico
+                                  ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                  : 'bg-blue-50 text-blue-700 border border-blue-200'
+                              }`}
+                            >
+                              {isServico ? 'SERVIÇO (23,86%)' : 'INSUMO (15,27%)'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-800 font-medium">{i.descricao}</td>
+                          <td className="py-2.5 px-3 text-center text-slate-600">{i.unidadeMedida}</td>
+                          <td className="py-2.5 px-3 text-right font-mono">{parseFloat(i.quantidade).toFixed(2)}</td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-500">
+                            R$ {precoBase.toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-800">
+                            R$ {parseFloat(i.valorUnitario).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                            R$ {parseFloat(i.valorTotal).toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -738,70 +799,121 @@ export default function DetalheChamadoPage({ params }: Props) {
                 )}
               </div>
 
-              {/* Inclusão de Item */}
-              <div className="grid grid-cols-1 sm:grid-cols-6 gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
-                <div className="sm:col-span-1">
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Código</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: SINAPI-91188"
-                    value={novoCod}
-                    onChange={(e) => setNovoCod(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded"
-                  />
+              {/* Inclusão de Item com Diferenciação de BDI (Insumos 15,27% vs Serviços 23,86%) */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-700">Classificação / Regime de BDI:</span>
+                    <div className="inline-flex rounded-lg border border-slate-300 p-0.5 bg-white">
+                      <button
+                        type="button"
+                        onClick={() => alterarTipoItemNovo('INSUMO')}
+                        className={`px-3 py-1 rounded-md font-bold text-xs transition ${
+                          novoTipoItem === 'INSUMO'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Insumo Puro (BDI 15,27%)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => alterarTipoItemNovo('SERVICO')}
+                        className={`px-3 py-1 rounded-md font-bold text-xs transition ${
+                          novoTipoItem === 'SERVICO'
+                            ? 'bg-purple-600 text-white shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Serviço c/ Mão de Obra (BDI 23,86%)
+                      </button>
+                    </div>
+                  </div>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    BDI aplicado: <strong>{novoTipoItem === 'INSUMO' ? '15,27%' : '23,86%'}</strong>
+                  </span>
                 </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Descrição</label>
-                  <input
-                    type="text"
-                    placeholder="Descrição do insumo ou serviço"
-                    value={novoDesc}
-                    onChange={(e) => setNovoDesc(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded"
-                  />
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Código</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: SINAPI-91188"
+                      value={novoCod}
+                      onChange={(e) => setNovoCod(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded font-mono font-bold text-slate-800"
+                    />
+                  </div>
+                  <div className="sm:col-span-4">
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Descrição</label>
+                    <input
+                      type="text"
+                      placeholder="Descrição do insumo ou serviço"
+                      value={novoDesc}
+                      onChange={(e) => setNovoDesc(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded font-medium text-slate-800"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Unidade</label>
+                    <input
+                      type="text"
+                      placeholder="un, m, h"
+                      value={novoUn}
+                      onChange={(e) => setNovoUn(e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-center"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Qtd</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="1"
+                      value={novoQtd}
+                      onChange={(e) => setNovoQtd(e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded font-mono text-right"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Preço Base ({novoTipoItem === 'INSUMO' ? 's/ BDI' : 's/ BDI'})
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="R$ Base"
+                      value={novoPrecoBase}
+                      onChange={(e) => alterarPrecoBaseNovo(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded font-mono text-right"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Unitário c/ BDI ({novoTipoItem === 'INSUMO' ? '+15,27%' : '+23,86%'})
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="R$ c/ BDI"
+                      value={novoVal}
+                      onChange={(e) => setNovoVal(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-indigo-300 rounded font-mono font-bold text-indigo-900 text-right"
+                    />
+                  </div>
                 </div>
-                <div className="sm:col-span-1">
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Unidade</label>
-                  <input
-                    type="text"
-                    placeholder="un, m, h"
-                    value={novoUn}
-                    onChange={(e) => setNovoUn(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded"
-                  />
-                </div>
-                <div className="sm:col-span-1">
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Qtd</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="1"
-                    value={novoQtd}
-                    onChange={(e) => setNovoQtd(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded"
-                  />
-                </div>
-                <div className="sm:col-span-1">
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Unitário</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="R$"
-                    value={novoVal}
-                    onChange={(e) => setNovoVal(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded"
-                  />
-                </div>
-                <div className="sm:col-span-6 flex justify-between items-center pt-2">
-                  <span className="text-[11px] text-slate-400">
-                    💡 Itens fora da tabela SINAPI entram pendentes de homologação pela fiscalização técnica.
+
+                <div className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-2 border-t border-slate-200">
+                  <span className="text-[11px] text-slate-500">
+                    💡 Itens fora da tabela SINAPI entram pendentes de homologação pela fiscalização técnica da UERN.
                   </span>
                   <button
                     type="button"
                     onClick={adicionarItemOrcamento}
-                    className="px-3 py-1.5 bg-slate-800 text-white rounded text-xs font-semibold hover:bg-slate-700"
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition shadow-sm"
                   >
-                    + Incluir Insumo
+                    + Incluir no Orçamento
                   </button>
                 </div>
               </div>
@@ -812,18 +924,37 @@ export default function DetalheChamadoPage({ params }: Props) {
                   <span className="text-xs font-bold text-slate-800 block">Itens deste orçamento:</span>
                   <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white text-xs">
                     {itensOrcamento.map((it, idx) => (
-                      <div key={idx} className="p-3 flex items-center justify-between">
-                        <div>
-                          <span className="font-mono font-bold text-slate-700">{it.codigo}</span> &bull; {it.descricao}
-                          <span className="text-slate-400 ml-2">({it.quantidade} {it.unidadeMedida} x R$ {it.valorUnitario.toFixed(2)})</span>
+                      <div key={idx} className="p-3 flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-slate-700">{it.codigo}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                it.tipoItem === 'INSUMO'
+                                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                  : 'bg-purple-50 text-purple-700 border border-purple-200'
+                              }`}
+                            >
+                              {it.tipoItem === 'INSUMO' ? 'INSUMO (15,27%)' : 'SERVIÇO (23,86%)'}
+                            </span>
+                            <span className="text-slate-800 font-medium">{it.descricao}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {it.quantidade} {it.unidadeMedida} &bull; Preço Base: R${' '}
+                            {it.precoBase ? it.precoBase.toFixed(2) : '-'} &bull; Unit. c/ BDI: R${' '}
+                            {it.valorUnitario.toFixed(2)}
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-3">
-                          <span className="font-bold text-slate-900 font-mono">R$ {it.valorTotal.toFixed(2)}</span>
+                        <div className="flex items-center space-x-3 shrink-0">
+                          <span className="font-bold text-slate-900 font-mono text-sm">
+                            R$ {it.valorTotal.toFixed(2)}
+                          </span>
                           <button
                             onClick={() => setItensOrcamento(itensOrcamento.filter((_, i) => i !== idx))}
-                            className="text-rose-500 hover:text-rose-700 p-1"
+                            className="text-rose-500 hover:text-rose-700 p-1 rounded"
+                            title="Remover item"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>

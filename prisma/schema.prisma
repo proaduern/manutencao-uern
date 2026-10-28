@@ -377,6 +377,8 @@ model TabelaReferencia {
   uf             String          @default("RN")
   desonerado     Boolean         @default(false)
   bdiPercentual  Decimal?        @db.Decimal(6, 3)
+  bdiInsumos     Decimal?        @default(15.270) @db.Decimal(6, 3)
+  bdiServicos    Decimal?        @default(23.860) @db.Decimal(6, 3)
   vigenciaInicio DateTime?
   vigenciaFim    DateTime?
   ativa          Boolean         @default(true)
@@ -396,6 +398,7 @@ model ItemReferencia {
   descricao             String           @db.Text
   unidadeMedida         String           // m², m, un, vb, etc
   precoUnitario         Decimal          @db.Decimal(12, 2)
+  tipoItem              String           @default("SERVICO") // INSUMO (BDI 15.27%) ou SERVICO (BDI 23.86%)
   status                String           @default("HOMOLOGADO") // HOMOLOGADO, PENDENTE_HOMOLOGACAO, REJEITADO
   usos                  Int              @default(0)
   justificativaReversao String?          @db.Text
@@ -516,6 +519,9 @@ model ChamadoInsumo {
   quantidade       Decimal         @db.Decimal(10, 3)
   valorUnitario    Decimal         @db.Decimal(12, 2)
   valorTotal       Decimal         @db.Decimal(12, 2)
+  tipoItem         String?         @default("INSUMO")
+  bdiPercentual    Decimal?        @db.Decimal(6, 3)
+  precoBase        Decimal?        @db.Decimal(12, 2)
 
   criadoEm         DateTime        @default(now())
 
@@ -796,6 +802,9 @@ model AgendaPropostaItem {
   quantidade        Decimal         @db.Decimal(10, 2)
   valorUnitario     Decimal         @db.Decimal(12, 2)
   valorTotal        Decimal         @db.Decimal(12, 2)
+  tipoItem          String?         @default("SERVICO")
+  bdiPercentual     Decimal?        @db.Decimal(6, 3)
+  precoBase         Decimal?        @db.Decimal(12, 2)
   anexoCotacoesUrl  String?         // Arquivo com as 3 cotações de fornecedores se for mercado
 
   @@map("agendas_propostas_itens")
