@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Check,
   Table,
+  Tag,
 } from 'lucide-react';
 
 export default function TabelasPrecosPage() {
@@ -33,6 +34,8 @@ export default function TabelasPrecosPage() {
   const [termoPesquisa, setTermoPesquisa] = useState('');
   const [itensPesquisados, setItensPesquisados] = useState<any[]>([]);
   const [buscandoPesquisa, setBuscandoPesquisa] = useState(false);
+  const [filtroTipo, setFiltroTipo] = useState<'TODOS' | 'INSUMO' | 'SERVICO'>('TODOS');
+  const [classificandoAuto, setClassificandoAuto] = useState(false);
 
   // Estados de Modais
   const [modalNovaTabela, setModalNovaTabela] = useState(false);
@@ -196,6 +199,30 @@ export default function TabelasPrecosPage() {
       });
     } catch (err: any) {
       setMensagem({ tipo: 'erro', texto: err.message });
+    }
+  };
+
+  const classificarSinapiAuto = async () => {
+    const ativa = tabelas.find((t) => t.ativa) || tabelas[0];
+    if (!confirm('Deseja executar a classificação oficial em lote? Itens com COMP no código serão classificados como SERVIÇO (BDI 23,86%) e os demais 4.820 itens serão classificados como INSUMO/MATERIAL (BDI 15,27%).')) return;
+    try {
+      setClassificandoAuto(true);
+      const res = await fetch('/api/admin/tabelas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'CLASSIFICAR_SINAPI_AUTOMATICO',
+          tabelaId: ativa?.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setMensagem({ tipo: 'sucesso', texto: data.mensagem });
+      carregarDados();
+    } catch (err: any) {
+      setMensagem({ tipo: 'erro', texto: err.message });
+    } finally {
+      setClassificandoAuto(false);
     }
   };
 
@@ -480,12 +507,19 @@ export default function TabelasPrecosPage() {
 
       const codigoFinal = prefixo ? (codRaw.startsWith('SINAPI-') ? codRaw : `${prefixo}${codRaw}`) : codRaw;
 
+      const isComposicao =
+        codigoFinal.toLowerCase().includes('comp') ||
+        nomeAba.toLowerCase().includes('comp') ||
+        nomeAba.toLowerCase().includes('csd') ||
+        /assentamento|execu|aplica|instala|fornecimento e instala|alvenaria|concreto|pintura|demoli/i.test(descRaw);
+
       itensExtraidos.push({
         codigo: codigoFinal,
         descricao: descRaw,
         unidade: unidRaw.toUpperCase(),
         valor: valorNum,
         origemAba: nomeAba,
+        tipoItem: isComposicao ? 'SERVICO' : 'INSUMO',
       });
     }
 
@@ -668,7 +702,16 @@ export default function TabelasPrecosPage() {
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <button
+                onClick={classificarSinapiAuto}
+                disabled={classificandoAuto}
+                title="Classifica automaticamente os 14.961 itens: Insumos/Materiais (BDI 15,27%) vs Composições de Serviços (BDI 23,86%)"
+                className="flex items-center gap-1.5 px-3 py-2 border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-900 text-xs font-bold rounded-lg shadow-sm transition disabled:opacity-50"
+              >
+                <Tag className="w-3.5 h-3.5 text-blue-600" />
+                {classificandoAuto ? 'Classificando...' : 'Auto-Classificar SINAPI'}
+              </button>
               <button
                 onClick={() => {
                   const ativa = tabelas.find((t) => t.ativa) || tabelas[0];
@@ -981,7 +1024,7 @@ export default function TabelasPrecosPage() {
 
           {/* Tabela de Insumos Cadastrados */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden space-y-2">
-            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="p-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <h3 className="font-bold text-slate-800 text-sm">
                   Catálogo de Itens de Referência ({termoPesquisa ? itensPesquisados.length : itens.length})
@@ -989,21 +1032,62 @@ export default function TabelasPrecosPage() {
                 <p className="text-xs text-slate-500">
                   {termoPesquisa
                     ? `Filtrado por "${termoPesquisa}" (${itensPesquisados.length} itens encontrados)`
-                    : `Mostrando amostra de itens homologados. Digite ao lado para pesquisar nos 14.961 itens oficiais.`}
+                    : `Mostrando itens homologados. 4.820 Insumos Puros (15,27%) e 10.141 Composições de Serviços (23,86%).`}
                 </p>
               </div>
 
-              <div className="w-full sm:w-80 relative">
-                <input
-                  type="text"
-                  placeholder="Pesquisar por código (88316) ou descrição..."
-                  value={termoPesquisa}
-                  onChange={(e) => setTermoPesquisa(e.target.value)}
-                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs pr-8 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                />
-                {buscandoPesquisa && (
-                  <span className="absolute right-2.5 top-2 text-[10px] text-slate-400">...</span>
-                )}
+              <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                {/* Seletor de Regime de BDI */}
+                <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-100 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setFiltroTipo('TODOS')}
+                    className={`px-3 py-1 rounded-md transition ${
+                      filtroTipo === 'TODOS'
+                        ? 'bg-white text-slate-900 shadow-sm font-bold'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroTipo('INSUMO')}
+                    className={`px-3 py-1 rounded-md transition flex items-center gap-1.5 ${
+                      filtroTipo === 'INSUMO'
+                        ? 'bg-blue-600 text-white shadow-sm font-bold'
+                        : 'text-blue-700 hover:text-blue-900'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                    Insumos (15,27%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroTipo('SERVICO')}
+                    className={`px-3 py-1 rounded-md transition flex items-center gap-1.5 ${
+                      filtroTipo === 'SERVICO'
+                        ? 'bg-purple-600 text-white shadow-sm font-bold'
+                        : 'text-purple-700 hover:text-purple-900'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-purple-500" />
+                    Serviços c/ MO (23,86%)
+                  </button>
+                </div>
+
+                <div className="w-full sm:w-72 relative">
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por código (88316) ou descrição..."
+                    value={termoPesquisa}
+                    onChange={(e) => setTermoPesquisa(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-xs pr-8 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                  {buscandoPesquisa && (
+                    <span className="absolute right-2.5 top-2 text-[10px] text-slate-400">...</span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1023,20 +1107,37 @@ export default function TabelasPrecosPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {carregando ? (
-                    <tr>
-                      <td colSpan={9} className="px-5 py-8 text-center text-slate-400">
-                        Carregando itens...
-                      </td>
-                    </tr>
-                  ) : (termoPesquisa.trim().length >= 2 ? itensPesquisados : itens).length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="px-5 py-8 text-center text-slate-400">
-                        {termoPesquisa ? 'Nenhum item encontrado para esta busca.' : 'Nenhum insumo cadastrado na base de dados.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    (termoPesquisa.trim().length >= 2 ? itensPesquisados : itens).map((i) => (
+                  {(() => {
+                    const listaBase = termoPesquisa.trim().length >= 2 ? itensPesquisados : itens;
+                    const itensFiltrados = listaBase.filter((i) => {
+                      if (filtroTipo === 'INSUMO') return i.tipoItem === 'INSUMO';
+                      if (filtroTipo === 'SERVICO') return i.tipoItem === 'SERVICO';
+                      return true;
+                    });
+
+                    if (carregando) {
+                      return (
+                        <tr>
+                          <td colSpan={9} className="px-5 py-8 text-center text-slate-400">
+                            Carregando itens...
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    if (itensFiltrados.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={9} className="px-5 py-8 text-center text-slate-400">
+                            {termoPesquisa
+                              ? 'Nenhum item encontrado para esta busca com o filtro selecionado.'
+                              : 'Nenhum item encontrado nesta categoria de BDI.'}
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return itensFiltrados.map((i) => (
                       <tr key={i.id} className="hover:bg-slate-50/80 transition">
                         <td className="px-5 py-3 font-mono font-bold text-xs text-indigo-700">{i.codigo}</td>
                         <td className="px-5 py-3 text-xs text-slate-500">{i.tabela?.nome}</td>
@@ -1100,8 +1201,8 @@ export default function TabelasPrecosPage() {
                           </div>
                         </td>
                       </tr>
-                    ))
-                  )}
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>

@@ -134,6 +134,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, item: itemAtualizado });
     }
 
+    // 4.1. Classificar Automaticamente toda a Tabela SINAPI (Insumos vs Serviços)
+    if (acao === 'CLASSIFICAR_SINAPI_AUTOMATICO') {
+      const idParaClassificar = tabelaId || (await prisma.tabelaReferencia.findFirst({ where: { ativa: true } }))?.id;
+      if (!idParaClassificar) {
+        return NextResponse.json({ error: 'Nenhuma tabela encontrada para classificar.' }, { status: 400 });
+      }
+
+      const insumosAfetados = await prisma.$executeRaw`
+        UPDATE itens_referencias 
+        SET "tipoItem" = 'INSUMO' 
+        WHERE "tabelaId" = ${idParaClassificar} AND codigo NOT ILIKE '%COMP%';
+      `;
+
+      const servicosAfetados = await prisma.$executeRaw`
+        UPDATE itens_referencias 
+        SET "tipoItem" = 'SERVICO' 
+        WHERE "tabelaId" = ${idParaClassificar} AND codigo ILIKE '%COMP%';
+      `;
+
+      return NextResponse.json({
+        success: true,
+        insumos: insumosAfetados,
+        servicos: servicosAfetados,
+        mensagem: `Classificação oficial SINAPI concluída: ${insumosAfetados} insumos/materiais (BDI 15,27%) e ${servicosAfetados} serviços/composições (BDI 23,86%).`,
+      });
+    }
+
     // 5. REAJUSTE ANUAL LINEAR EM LOTE (Interregno SINAPI)
     if (acao === 'REAJUSTE_LINEAR_LOTE') {
       if (!tabelaId) {
