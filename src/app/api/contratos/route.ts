@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getSession } from '@/lib/auth';
-import { obterGrandezasContrato } from '@/lib/services/contrato';
+import { obterGrandezasContrato, limparCacheGrandezasContrato } from '@/lib/services/contrato';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,9 +52,9 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const contratoIdParam = searchParams.get('id');
 
-    // 1. Buscar todos os contratos cadastrados para permitir alternância
+    // 1. Buscar todos os contratos cadastrados para permitir alternância (priorizando o contrato ativo sincronizado)
     const todosContratos = await prisma.contrato.findMany({
-      orderBy: [{ ano: 'desc' }, { numero: 'desc' }],
+      orderBy: [{ ativo: 'desc' }, { atualizadoEm: 'desc' }, { ano: 'desc' }, { numero: 'desc' }],
       include: {
         empresa: { select: { id: true, razaoSocial: true, cnpj: true } },
       },

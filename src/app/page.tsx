@@ -64,7 +64,7 @@ export default async function DashboardPage() {
     }),
     prisma.contrato.findFirst({
       where: { ativo: true },
-      orderBy: { criadoEm: 'desc' },
+      orderBy: [{ atualizadoEm: 'desc' }, { criadoEm: 'desc' }],
     }),
   ]);
 
