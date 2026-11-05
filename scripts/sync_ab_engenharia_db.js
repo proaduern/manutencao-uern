@@ -30,6 +30,11 @@ const WORKERS_26 = [
   { nomeCompleto: 'Paulo Manoel Ferreira', cpf: '069.984.224-74', funcao: 'TRABALHADOR DE MANUTENÇÃO DE EDIFICAÇÕES — Natal', cargoBase: 'TRABALHADOR DE MANUTENÇÃO DE EDIFICAÇÕES', cidade: 'Natal' }
 ];
 
+const HISTORICO_SUBSTITUIDOS = [
+  { nomeCompleto: 'Ícaro Patrick de Oliveira', cpf: '124.400.384-07', funcao: 'SUPERVISOR PARA ACOMPANHAMENTO DE SERVIÇOS DE CAMPO', cidade: 'Mossoró' },
+  { nomeCompleto: 'Lucas Matheus Lucena Fernandes', cpf: '124.466.594-03', funcao: 'TRABALHADOR DE MANUTENÇÃO DE EDIFICAÇÕES — Mossoró', cargoBase: 'TRABALHADOR DE MANUTENÇÃO DE EDIFICAÇÕES', cidade: 'Mossoró' }
+];
+
 async function main() {
   console.log('=== ATUALIZANDO CONTRATO 01/2026 E FUNCIONÁRIOS NO MANUTENÇÃO PREDIAL ===');
 
@@ -127,7 +132,27 @@ async function main() {
       }
     });
   }
-  console.log(`✔ ${WORKERS_26.length} funcionários nominais registrados em FuncionarioEmpresa.`);
+  for (const w of HISTORICO_SUBSTITUIDOS) {
+    await prisma.funcionarioEmpresa.upsert({
+      where: { cpf: w.cpf },
+      update: {
+        empresaId: contrato.empresaId,
+        nome: w.nomeCompleto,
+        cargo: w.cargoBase || w.funcao,
+        cidadeLotacao: w.cidade,
+        ativo: false
+      },
+      create: {
+        empresaId: contrato.empresaId,
+        nome: w.nomeCompleto,
+        cpf: w.cpf,
+        cargo: w.cargoBase || w.funcao,
+        cidadeLotacao: w.cidade,
+        ativo: false
+      }
+    });
+  }
+  console.log(`✔ ${WORKERS_26.length} funcionários ativos e ${HISTORICO_SUBSTITUIDOS.length} substituídos registrados em FuncionarioEmpresa.`);
 
   // Link workers to ContratoItemMaoObra posts
   for (const item of contrato.itensMaoObra) {
@@ -147,7 +172,20 @@ async function main() {
         }
       });
     }
-    console.log(`  -> Posto [${item.funcao}]: ${matched.length} funcionário(s) vinculado(s)`);
+    const matchedSub = HISTORICO_SUBSTITUIDOS.filter(
+      w => w.funcao.trim().toUpperCase() === item.funcao.trim().toUpperCase()
+    );
+    for (const w of matchedSub) {
+      await prisma.contratoFuncionarioPosto.create({
+        data: {
+          itemMaoObraId: item.id,
+          nomeCompleto: w.nomeCompleto,
+          cpf: w.cpf,
+          ativo: false
+        }
+      });
+    }
+    console.log(`  -> Posto [${item.funcao}]: ${matched.length} ativo(s), ${matchedSub.length} substituído(s)`);
   }
 
   console.log('=== SINCRONIZAÇÃO NO MANUTENÇÃO PREDIAL CONCLUÍDA COM SUCESSO! ===');

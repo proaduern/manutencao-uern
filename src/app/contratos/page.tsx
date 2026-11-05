@@ -1585,9 +1585,19 @@ export default function ContratosCotasPage() {
                                           Substituído a partir de 01/09/2026 por Ryan Miqueias (Proc. SEI 04410035.002260/2026-43)
                                         </div>
                                       )}
+                                      {trab.cpf === '124.466.594-03' && (
+                                        <div className="text-[10px] text-purple-700 font-medium">
+                                          Substituído a partir de 01/08/2026 por Domício de Paula Rodrigues Neto
+                                        </div>
+                                      )}
                                       {trab.cpf === '701.180.294-14' && (
                                         <div className="text-[10px] text-emerald-700 font-medium">
                                           Substituiu Ícaro Patrick a partir de 01/09/2026 (Proc. SEI 04410035.002260/2026-43)
+                                        </div>
+                                      )}
+                                      {trab.cpf === '094.853.144-42' && (
+                                        <div className="text-[10px] text-emerald-700 font-medium">
+                                          Substituiu Lucas Matheus a partir de 01/08/2026
                                         </div>
                                       )}
                                     </div>
