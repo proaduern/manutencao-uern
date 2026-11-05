@@ -41,6 +41,10 @@ export interface TrabalhadorSgcInfo {
   funcao: string;
   campus?: string | null;
   setorLotacao?: string | null;
+  status?: string | null;
+  dataAdmissao?: string | null;
+  dataDemissao?: string | null;
+  beneficiosInfo?: string | null;
 }
 
 export interface ContratoSgcInfo {
@@ -562,6 +566,7 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
       for (const trab of c.trabalhadores) {
         if (!trab.cpf || !trab.nomeCompleto) continue;
         const cidadeLotacao = extrairCidadeCampus(trab.campus);
+        const ehAtivo = trab.status === 'ATIVO' && !trab.dataDemissao;
         await prisma.funcionarioEmpresa.upsert({
           where: { cpf: trab.cpf.trim() },
           update: {
@@ -569,7 +574,7 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
             nome: trab.nomeCompleto.trim(),
             cargo: (trab.funcao || 'Profissional de Manutenção').trim(),
             cidadeLotacao,
-            ativo: true,
+            ativo: ehAtivo,
           },
           create: {
             empresaId: empresa.id,
@@ -577,7 +582,7 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
             cpf: trab.cpf.trim(),
             cargo: (trab.funcao || 'Profissional de Manutenção').trim(),
             cidadeLotacao,
-            ativo: true,
+            ativo: ehAtivo,
           },
         });
       }
@@ -585,18 +590,20 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
 
     // 4. Sincronizar os Postos de Mão de Obra Residente (ContratoItemMaoObra) e vincular trabalhadores por função + cidade
     if (extraido.itensMaoObra.length > 0) {
-      const funcionariosPorFuncao = new Map<string, Array<{ nomeCompleto: string; cpf: string }>>();
+      const funcionariosPorFuncao = new Map<string, Array<{ nomeCompleto: string; cpf: string; ativo: boolean }>>();
 
       if (Array.isArray(c.trabalhadores) && c.trabalhadores.length > 0) {
         for (const trab of c.trabalhadores) {
           const funcaoLimpa = (trab.funcao || '').trim().toUpperCase();
           const cidadeTrab = extrairCidadeCampus(trab.campus).toUpperCase();
           const chaveComCidade = `${funcaoLimpa} — ${cidadeTrab}`;
+          const ehAtivo = trab.status === 'ATIVO' && !trab.dataDemissao;
+          const trabObj = { nomeCompleto: trab.nomeCompleto, cpf: trab.cpf, ativo: ehAtivo };
 
           // Registra na chave com cidade
           const listaCidade = funcionariosPorFuncao.get(chaveComCidade) || [];
           if (!listaCidade.some((f) => f.cpf.replace(/\D/g, '') === (trab.cpf || '').replace(/\D/g, ''))) {
-            listaCidade.push({ nomeCompleto: trab.nomeCompleto, cpf: trab.cpf });
+            listaCidade.push(trabObj);
             funcionariosPorFuncao.set(chaveComCidade, listaCidade);
           }
 
@@ -604,7 +611,7 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
           if (cidadeTrab === 'MOSSORÓ') {
             const listaBase = funcionariosPorFuncao.get(funcaoLimpa) || [];
             if (!listaBase.some((f) => f.cpf.replace(/\D/g, '') === (trab.cpf || '').replace(/\D/g, ''))) {
-              listaBase.push({ nomeCompleto: trab.nomeCompleto, cpf: trab.cpf });
+              listaBase.push(trabObj);
               funcionariosPorFuncao.set(funcaoLimpa, listaBase);
             }
           }
@@ -615,7 +622,7 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
           if (itemAntigo.funcionarios?.length > 0) {
             funcionariosPorFuncao.set(
               chave,
-              itemAntigo.funcionarios.map((f) => ({ nomeCompleto: f.nomeCompleto, cpf: f.cpf }))
+              itemAntigo.funcionarios.map((f) => ({ nomeCompleto: f.nomeCompleto, cpf: f.cpf, ativo: f.ativo !== false }))
             );
           }
         }
@@ -648,7 +655,7 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
               itemMaoObraId: itemCriado.id,
               nomeCompleto: func.nomeCompleto,
               cpf: func.cpf,
-              ativo: true,
+              ativo: func.ativo !== false,
             },
           });
         }

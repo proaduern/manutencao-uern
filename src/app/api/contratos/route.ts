@@ -78,7 +78,7 @@ export async function GET(req: Request) {
           empresa: true,
           itensMaoObra: {
             include: {
-              funcionarios: { where: { ativo: true }, orderBy: { nomeCompleto: 'asc' } },
+              funcionarios: { orderBy: [{ ativo: 'desc' }, { nomeCompleto: 'asc' }] },
             },
             orderBy: { funcao: 'asc' },
           },
