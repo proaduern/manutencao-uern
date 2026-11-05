@@ -83,7 +83,7 @@ export async function GET(req: Request) {
             orderBy: { funcao: 'asc' },
           },
           repactuacoes: { orderBy: { dataRepactuacao: 'desc' } },
-          aditivos: { orderBy: { criadoEm: 'desc' } },
+          aditivos: { where: { tipo: { not: 'EXECUCAO_SGC' } }, orderBy: { criadoEm: 'desc' } },
           unidades: {
             include: {
               unidade: { select: { id: true, nome: true, campus: true, sigla: true, email: true, telefone: true } },

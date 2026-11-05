@@ -54,8 +54,16 @@ export interface ContratoSgcInfo {
   valorGlobal?: number;
   valorAtualizado: number;
   totalEmpenhadoOs: number;
+  totalMedido?: number;
   saldoDisponivel: number;
   percentualConsumido: number;
+  execucaoPorRubrica?: {
+    maoObra: number;
+    servicosEventuais: number;
+    insumos: number;
+    diarias: number;
+    totalExecutado: number;
+  };
   fornecedor: {
     id: string;
     razaoSocial: string;
@@ -436,8 +444,8 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
     // 2. Extrai valores das 4 rubricas, vigência real e postos de mão de obra residente a partir dos itens do SGC
     const extraido = extrairRubricasEPostosDoContratoSgc(c);
 
-    // 3. Verifica se já existe o contrato pelo par (numero, ano)
-    const contratoExistente = await prisma.contrato.findUnique({
+    // 3. Verifica se já existe o contrato pelo par (numero, ano) ou se era o 01/2016 da mesma empresa atualizado para 01/2026
+    let contratoExistente = await prisma.contrato.findUnique({
       where: {
         numero_ano: {
           numero,
@@ -451,12 +459,29 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
       },
     });
 
+    if (!contratoExistente && numero === '01' && ano === 2026) {
+      contratoExistente = await prisma.contrato.findFirst({
+        where: {
+          numero: '01',
+          ano: 2016,
+          empresaId: empresa.id,
+        },
+        include: {
+          itensMaoObra: {
+            include: { funcionarios: true },
+          },
+        },
+      });
+    }
+
     let contratoIdFinal: string;
 
     if (contratoExistente) {
       const atualizado = await prisma.contrato.update({
         where: { id: contratoExistente.id },
         data: {
+          numero,
+          ano,
           empresaId: empresa.id,
           objeto: c.objeto || 'Serviços de Manutenção Predial',
           dataInicio: extraido.dataInicio,
@@ -505,11 +530,86 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
 
     idsContratosSincronizados.push(contratoIdFinal);
 
-    // 4. Sincronizar os Postos de Mão de Obra Residente (ContratoItemMaoObra)
+    // 3.1. Persistir resumo de execução/faturamento sincronizado do SGC por rubrica (em ContratoAditivo tipo EXECUCAO_SGC)
+    if (c.execucaoPorRubrica) {
+      await prisma.contratoAditivo.deleteMany({
+        where: { contratoId: contratoIdFinal, tipo: 'EXECUCAO_SGC' },
+      });
+      await prisma.contratoAditivo.create({
+        data: {
+          contratoId: contratoIdFinal,
+          numero: 'SGC-EXECUCAO-SINCRONIZADA',
+          tipo: 'EXECUCAO_SGC',
+          valorAjuste: Number(c.execucaoPorRubrica.totalExecutado || c.totalMedido || 0),
+          objeto: JSON.stringify(c.execucaoPorRubrica),
+        },
+      });
+    }
+
+    // Helper para extrair cidade normalizada a partir do campus do SGC
+    const extrairCidadeCampus = (campus?: string | null): string => {
+      const cp = (campus || '').toUpperCase();
+      if (cp.includes('PAU DOS FERROS')) return 'Pau dos Ferros';
+      if (cp.includes('ASSÚ') || cp.includes('ASSU')) return 'Assú';
+      if (cp.includes('PATU')) return 'Patu';
+      if (cp.includes('CAICÓ') || cp.includes('CAICO')) return 'Caicó';
+      if (cp.includes('NATAL')) return 'Natal';
+      return 'Mossoró';
+    };
+
+    // 3.2. Sincronizar lista nominal na tabela FuncionarioEmpresa (funcionarios_empresas)
+    if (Array.isArray(c.trabalhadores) && c.trabalhadores.length > 0) {
+      for (const trab of c.trabalhadores) {
+        if (!trab.cpf || !trab.nomeCompleto) continue;
+        const cidadeLotacao = extrairCidadeCampus(trab.campus);
+        await prisma.funcionarioEmpresa.upsert({
+          where: { cpf: trab.cpf.trim() },
+          update: {
+            empresaId: empresa.id,
+            nome: trab.nomeCompleto.trim(),
+            cargo: (trab.funcao || 'Profissional de Manutenção').trim(),
+            cidadeLotacao,
+            ativo: true,
+          },
+          create: {
+            empresaId: empresa.id,
+            nome: trab.nomeCompleto.trim(),
+            cpf: trab.cpf.trim(),
+            cargo: (trab.funcao || 'Profissional de Manutenção').trim(),
+            cidadeLotacao,
+            ativo: true,
+          },
+        });
+      }
+    }
+
+    // 4. Sincronizar os Postos de Mão de Obra Residente (ContratoItemMaoObra) e vincular trabalhadores por função + cidade
     if (extraido.itensMaoObra.length > 0) {
-      // Mapa de funcionários já cadastrados por função para preservá-los na ressincronização
       const funcionariosPorFuncao = new Map<string, Array<{ nomeCompleto: string; cpf: string }>>();
-      if (contratoExistente?.itensMaoObra) {
+
+      if (Array.isArray(c.trabalhadores) && c.trabalhadores.length > 0) {
+        for (const trab of c.trabalhadores) {
+          const funcaoLimpa = (trab.funcao || '').trim().toUpperCase();
+          const cidadeTrab = extrairCidadeCampus(trab.campus).toUpperCase();
+          const chaveComCidade = `${funcaoLimpa} — ${cidadeTrab}`;
+
+          // Registra na chave com cidade
+          const listaCidade = funcionariosPorFuncao.get(chaveComCidade) || [];
+          if (!listaCidade.some((f) => f.cpf.replace(/\D/g, '') === (trab.cpf || '').replace(/\D/g, ''))) {
+            listaCidade.push({ nomeCompleto: trab.nomeCompleto, cpf: trab.cpf });
+            funcionariosPorFuncao.set(chaveComCidade, listaCidade);
+          }
+
+          // Registra na chave base apenas se for de Mossoró (para postos únicos de Mossoró que não levam sufixo de cidade)
+          if (cidadeTrab === 'MOSSORÓ') {
+            const listaBase = funcionariosPorFuncao.get(funcaoLimpa) || [];
+            if (!listaBase.some((f) => f.cpf.replace(/\D/g, '') === (trab.cpf || '').replace(/\D/g, ''))) {
+              listaBase.push({ nomeCompleto: trab.nomeCompleto, cpf: trab.cpf });
+              funcionariosPorFuncao.set(funcaoLimpa, listaBase);
+            }
+          }
+        }
+      } else if (contratoExistente?.itensMaoObra) {
         for (const itemAntigo of contratoExistente.itensMaoObra) {
           const chave = itemAntigo.funcao.trim().toUpperCase();
           if (itemAntigo.funcionarios?.length > 0) {
@@ -517,18 +617,6 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
               chave,
               itemAntigo.funcionarios.map((f) => ({ nomeCompleto: f.nomeCompleto, cpf: f.cpf }))
             );
-          }
-        }
-      }
-
-      // Também incorpora trabalhadores ativos vindos diretamente do SGC (se houver)
-      if (Array.isArray(c.trabalhadores) && c.trabalhadores.length > 0) {
-        for (const trab of c.trabalhadores) {
-          const chaveTrab = (trab.funcao || '').trim().toUpperCase();
-          const lista = funcionariosPorFuncao.get(chaveTrab) || [];
-          if (!lista.some((f) => f.cpf.replace(/\D/g, '') === (trab.cpf || '').replace(/\D/g, ''))) {
-            lista.push({ nomeCompleto: trab.nomeCompleto, cpf: trab.cpf });
-            funcionariosPorFuncao.set(chaveTrab, lista);
           }
         }
       }
@@ -549,9 +637,10 @@ export async function sincronizarContratosManutencaoComSgc(): Promise<{
         });
 
         const chavePosto = posto.funcao.trim().toUpperCase();
-        const chaveBase = posto.funcao.split('—')[0].trim().toUpperCase();
-        const funcsParaVincular =
-          funcionariosPorFuncao.get(chavePosto) || funcionariosPorFuncao.get(chaveBase) || [];
+        const temCidadeNoPosto = chavePosto.includes('—');
+        const funcsParaVincular = temCidadeNoPosto
+          ? funcionariosPorFuncao.get(chavePosto) || []
+          : funcionariosPorFuncao.get(chavePosto) || [];
 
         for (const func of funcsParaVincular) {
           await prisma.contratoFuncionarioPosto.create({

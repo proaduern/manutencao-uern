@@ -117,7 +117,7 @@ export async function obterGrandezasContrato(
     where: { id: contratoId },
     include: {
       empresa: true,
-      aditivos: { where: { tipo: 'VALOR' } },
+      aditivos: true,
       itensMaoObra: {
         include: {
           funcionarios: { where: { ativo: true } },
@@ -133,6 +133,26 @@ export async function obterGrandezasContrato(
   });
 
   if (!contrato) return null;
+
+  let sgcExec: {
+    maoObra?: number;
+    servicosEventuais?: number;
+    insumos?: number;
+    diarias?: number;
+    totalExecutado?: number;
+  } | null = null;
+
+  const aditivoSgc = Array.isArray(contrato.aditivos)
+    ? contrato.aditivos.find((a: any) => a.tipo === 'EXECUCAO_SGC')
+    : null;
+  if (aditivoSgc?.objeto) {
+    try {
+      sgcExec = JSON.parse(aditivoSgc.objeto);
+    } catch {}
+  }
+  contrato.aditivos = Array.isArray(contrato.aditivos)
+    ? contrato.aditivos.filter((a: any) => a.tipo === 'VALOR')
+    : [];
 
   // Valor Contratado Base + Aditivos de Valor devidamente empenhados
   const valorBase = parseFloat(contrato.valorTotal.toString());
@@ -341,9 +361,32 @@ export async function obterGrandezasContrato(
     }
   }
 
+  // Incorporar valores efetivamente faturados/liquidados no SGC (quando sincronizados)
+  const liquidadoMaoObra =
+    sgcExec && typeof sgcExec.maoObra === 'number' && sgcExec.maoObra > 0
+      ? Number(sgcExec.maoObra.toFixed(2))
+      : Number(contratadoMaoObra.toFixed(2));
+  const saldoMaoObra = Math.max(0, Number((contratadoMaoObra - liquidadoMaoObra).toFixed(2)));
+  const percMaoObra =
+    contratadoMaoObra > 0
+      ? Math.min(100, Number(((liquidadoMaoObra / contratadoMaoObra) * 100).toFixed(2)))
+      : 0;
+
+  if (sgcExec) {
+    liquidadoInsumos = Math.max(liquidadoInsumos, Number(sgcExec.insumos || 0));
+    liquidadoEventuais = Math.max(liquidadoEventuais, Number(sgcExec.servicosEventuais || 0));
+    liquidadoDiarias = Math.max(liquidadoDiarias, Number(sgcExec.diarias || 0));
+    if (diasLiquidados === 0 && liquidadoDiarias > 0 && valorDiariaUnitario > 0) {
+      diasLiquidados = Math.max(1, Math.round(liquidadoDiarias / valorDiariaUnitario));
+    }
+    totalLiquidadoGlobal = Number(
+      (liquidadoMaoObra + liquidadoInsumos + liquidadoEventuais + liquidadoDiarias).toFixed(2)
+    );
+  }
+
   const saldoDisponivelGlobal = Math.max(0, Number((valorBase - totalProvisionadoGlobal - totalLiquidadoGlobal).toFixed(2)));
   const percentualConsumidoGlobal = valorBase > 0
-    ? Math.min(100, Math.round(((totalProvisionadoGlobal + totalLiquidadoGlobal) / valorBase) * 100))
+    ? Math.min(100, Number((((totalProvisionadoGlobal + totalLiquidadoGlobal) / valorBase) * 100).toFixed(2)))
     : 0;
 
   // Cálculos por Rubrica
@@ -356,12 +399,12 @@ export async function obterGrandezasContrato(
     descricao: 'Postos de trabalho fixos dedicados à UERN. Custo mensal contratado fixo (não sofre desconto por chamados).',
     valorContratado: Number(contratadoMaoObra.toFixed(2)),
     valorProvisionado: 0,
-    valorLiquidado: Number(contratadoMaoObra.toFixed(2)),
-    saldoDisponivel: 0,
-    percentualConsumido: 100,
+    valorLiquidado: liquidadoMaoObra,
+    saldoDisponivel: saldoMaoObra,
+    percentualConsumido: percMaoObra,
     contratado: Number(contratadoMaoObra.toFixed(2)),
     provisionado: 0,
-    liquidado: Number(contratadoMaoObra.toFixed(2)),
+    liquidado: liquidadoMaoObra,
     custoMensal: Number(custoMensalMaoObra.toFixed(2)),
     quantidadePostos: totalPostosContratados,
     isFixo: true,
@@ -373,7 +416,7 @@ export async function obterGrandezasContrato(
   // 2. Insumos sob Demanda
   const saldoInsumos = Math.max(0, Number((contratadoInsumos - provisionadoInsumos - liquidadoInsumos).toFixed(2)));
   const percInsumos = contratadoInsumos > 0
-    ? Math.min(100, Math.round(((provisionadoInsumos + liquidadoInsumos) / contratadoInsumos) * 100))
+    ? Math.min(100, Number((((provisionadoInsumos + liquidadoInsumos) / contratadoInsumos) * 100).toFixed(2)))
     : 0;
   const rubricaInsumos: GrandezasRubrica = {
     codigo: 'INSUMOS',
@@ -393,7 +436,7 @@ export async function obterGrandezasContrato(
   // 3. Serviços Eventuais
   const saldoEventuais = Math.max(0, Number((contratadoEventuais - provisionadoEventuais - liquidadoEventuais).toFixed(2)));
   const percEventuais = contratadoEventuais > 0
-    ? Math.min(100, Math.round(((provisionadoEventuais + liquidadoEventuais) / contratadoEventuais) * 100))
+    ? Math.min(100, Number((((provisionadoEventuais + liquidadoEventuais) / contratadoEventuais) * 100).toFixed(2)))
     : 0;
   const rubricaServicosEventuais: GrandezasRubrica = {
     codigo: 'SERVICOS_EVENTUAIS',
@@ -413,7 +456,7 @@ export async function obterGrandezasContrato(
   // 4. Diárias de Deslocamento
   const saldoDiarias = Math.max(0, Number((contratadoDiarias - provisionadoDiarias - liquidadoDiarias).toFixed(2)));
   const percDiarias = contratadoDiarias > 0
-    ? Math.min(100, Math.round(((provisionadoDiarias + liquidadoDiarias) / contratadoDiarias) * 100))
+    ? Math.min(100, Number((((provisionadoDiarias + liquidadoDiarias) / contratadoDiarias) * 100).toFixed(2)))
     : 0;
   const qtdDiariasContratadas = valorDiariaUnitario > 0 ? Math.floor(contratadoDiarias / valorDiariaUnitario) : 0;
   const qtdDiariasDisponiveis = valorDiariaUnitario > 0 ? Math.floor(saldoDiarias / valorDiariaUnitario) : 0;
