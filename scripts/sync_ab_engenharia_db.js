@@ -2,7 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 const WORKERS_26 = [
-  { nomeCompleto: 'Ícaro Patrick de Oliveira', cpf: '124.400.384-07', funcao: 'SUPERVISOR PARA ACOMPANHAMENTO DE SERVIÇOS DE CAMPO', cidade: 'Mossoró' },
+  { nomeCompleto: 'Ryan Miqueias Oliveira Mesquita', cpf: '701.180.294-14', funcao: 'SUPERVISOR PARA ACOMPANHAMENTO DE SERVIÇOS DE CAMPO', cidade: 'Mossoró' },
   { nomeCompleto: 'Kerginaldo Benjamin Mesquita Trajano', cpf: '852.182.864-00', funcao: 'SUPERVISOR PARA ACOMPANHAMENTO DE SERVIÇOS DE CAMPO', cidade: 'Mossoró' },
   { nomeCompleto: 'Ivanaldo Elizeu Lopes Gomes', cpf: '027.113.254-07', funcao: 'ELETRICISTA', cidade: 'Mossoró' },
   { nomeCompleto: 'Tiago Gomes Custódio', cpf: '017.358.984-73', funcao: 'ELETRICISTA', cidade: 'Mossoró' },
@@ -77,7 +77,7 @@ async function main() {
       valorAnualDiarias: 50000.00,
       valorDiarias: 100000.00,
       valorTotal: 8948360.00,
-      saldoDisponivel: 7114810.70,
+      saldoDisponivel: 6934547.33,
       ativo: true
     },
     include: { itensMaoObra: true }
@@ -86,11 +86,11 @@ async function main() {
 
   // Persist SGC execution summary per rubrica in ContratoAditivo (EXECUCAO_SGC)
   const execucaoPorRubrica = {
-    maoObra: 715158.58,
-    servicosEventuais: 807061.49,
+    maoObra: 839577.43,
+    servicosEventuais: 862158.41,
     insumos: 309463.47,
-    diarias: 1865.76,
-    totalExecutado: 1833549.30
+    diarias: 2613.36,
+    totalExecutado: 2013812.67
   };
   await prisma.contratoAditivo.deleteMany({
     where: { contratoId: contrato.id, tipo: 'EXECUCAO_SGC' }
@@ -100,11 +100,11 @@ async function main() {
       contratoId: contrato.id,
       numero: 'SGC-EXECUCAO-SINCRONIZADA',
       tipo: 'EXECUCAO_SGC',
-      valorAjuste: 1833549.30,
+      valorAjuste: 2013812.67,
       objeto: JSON.stringify(execucaoPorRubrica)
     }
   });
-  console.log('✔ Saldos consumidos por rubrica (03/2026 a 08/2026 = R$ 1.833.549,30) sincronizados.');
+  console.log('✔ Saldos consumidos por rubrica (03/2026 a 09/2026 = R$ 2.013.812,67) sincronizados.');
 
   // Upsert 26 active workers into FuncionarioEmpresa
   for (const w of WORKERS_26) {
