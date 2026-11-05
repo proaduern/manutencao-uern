@@ -138,6 +138,7 @@ export async function GET(req: Request) {
           id: f.id,
           nomeCompleto: f.nomeCompleto,
           cpf: f.cpf,
+          ativo: f.ativo,
         })),
       };
     });

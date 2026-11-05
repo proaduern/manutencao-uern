@@ -216,6 +216,15 @@ export default function ContratosCotasPage() {
     return list;
   }, [contrato]);
 
+  const totalTrabalhadoresAtivos = useMemo(
+    () => listaTrabalhadores.filter((t) => t.ativo).length,
+    [listaTrabalhadores]
+  );
+  const totalTrabalhadoresSubstituidos = useMemo(
+    () => listaTrabalhadores.filter((t) => !t.ativo).length,
+    [listaTrabalhadores]
+  );
+
   // Lista filtrada para o quadro de trabalhadores
   const trabalhadoresFiltrados = useMemo(() => {
     return listaTrabalhadores.filter((t) => {
@@ -1204,8 +1213,8 @@ export default function ContratosCotasPage() {
                 >
                   <Users className="w-4 h-4" />
                   Mão de Obra Residente & Trabalhadores
-                  <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] text-slate-600">
-                    {contrato?.itensMaoObra?.length || 0} funções / {listaTrabalhadores.length} pessoas
+                  <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] text-slate-600 font-semibold">
+                    {contrato?.itensMaoObra?.length || 0} funções / {totalTrabalhadoresAtivos} ativos {totalTrabalhadoresSubstituidos > 0 ? `(${totalTrabalhadoresSubstituidos} subst.)` : ''}
                   </span>
                 </button>
 
@@ -1357,25 +1366,27 @@ export default function ContratosCotasPage() {
                                       <div>
                                         <span>{item.funcao}</span>
                                         {item.funcionarios && item.funcionarios.length > 0 && (
-                                          <div className="flex flex-wrap gap-1 mt-1">
+                                          <div className="flex flex-wrap gap-1 mt-1.5">
                                             {item.funcionarios.map((f: any) => (
                                               <span
                                                 key={f.id}
-                                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border ${
+                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border ${
                                                   f.ativo === false
-                                                    ? 'bg-purple-50 text-purple-700 border-purple-200 line-through opacity-85'
-                                                    : 'bg-slate-100 text-slate-700 border-slate-200 font-normal'
+                                                    ? 'bg-purple-50 text-purple-700 border-purple-200 line-through opacity-80'
+                                                    : 'bg-emerald-50 text-emerald-800 border-emerald-200 font-medium'
                                                 }`}
-                                                title={`CPF: ${f.cpf}${f.ativo === false ? ' (Substituído)' : ''}`}
+                                                title={`CPF: ${f.cpf}${f.ativo === false ? ' (Substituído - Histórico)' : ' (Titular Ativo)'}`}
                                               >
                                                 {f.ativo === false ? (
-                                                  <Clock className="w-2.5 h-2.5 text-purple-600" />
+                                                  <Clock className="w-2.5 h-2.5 text-purple-600 shrink-0" />
                                                 ) : (
-                                                  <UserCheck className="w-2.5 h-2.5 text-emerald-600" />
+                                                  <UserCheck className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
                                                 )}
-                                                {f.nomeCompleto}
-                                                {f.ativo === false && (
-                                                  <span className="no-underline text-[9px] font-bold text-purple-700">(Substituído)</span>
+                                                <span>{f.nomeCompleto}</span>
+                                                {f.ativo === false ? (
+                                                  <span className="no-underline text-[9px] font-bold text-purple-700 ml-0.5">(Substituído)</span>
+                                                ) : (
+                                                  <span className="text-[9px] font-semibold text-emerald-600 ml-0.5">(Ativo)</span>
                                                 )}
                                               </span>
                                             ))}
@@ -1409,9 +1420,9 @@ export default function ContratosCotasPage() {
                                       {funcsAtivos.length} / {qtdPostos} {completo ? 'preenchidos' : 'alocados'}
                                     </span>
                                     {funcsSubstituidos.length > 0 && (
-                                      <div className="text-[10px] text-purple-700 font-semibold mt-0.5 flex items-center justify-center gap-1">
-                                        <Clock className="w-2.5 h-2.5" />
-                                        {funcsSubstituidos.length} {funcsSubstituidos.length === 1 ? 'substituição' : 'substituições'}
+                                      <div className="text-[10px] text-purple-700 font-medium mt-1 flex items-center justify-center gap-1 bg-purple-50/70 py-0.5 px-2 rounded border border-purple-100">
+                                        <Clock className="w-2.5 h-2.5 text-purple-600 shrink-0" />
+                                        <span>{funcsSubstituidos.length} {funcsSubstituidos.length === 1 ? 'substituído' : 'substituídos'} ({funcsSubstituidos.map((s: any) => s.nomeCompleto.split(' ')[0]).join(', ')})</span>
                                       </div>
                                     )}
                                   </td>
@@ -1509,11 +1520,15 @@ export default function ContratosCotasPage() {
                             className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
                           >
                             <option value="">Todas as Funções ({listaTrabalhadores.length})</option>
-                            {contrato.itensMaoObra?.map((item: any) => (
-                              <option key={item.id} value={item.id}>
-                                {item.funcao} ({item.funcionarios?.length || 0})
-                              </option>
-                            ))}
+                            {contrato.itensMaoObra?.map((item: any) => {
+                              const atv = (item.funcionarios || []).filter((f: any) => f.ativo !== false).length;
+                              const sub = (item.funcionarios || []).filter((f: any) => f.ativo === false).length;
+                              return (
+                                <option key={item.id} value={item.id}>
+                                  {item.funcao} ({atv} ativos{sub > 0 ? `, ${sub} subst.` : ''})
+                                </option>
+                              );
+                            })}
                           </select>
                         </div>
 
@@ -1523,9 +1538,9 @@ export default function ContratosCotasPage() {
                             onChange={(e) => setFiltroStatusTrabalhador(e.target.value as any)}
                             className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
                           >
-                            <option value="TODOS">Todos os Status ({listaTrabalhadores.length})</option>
-                            <option value="ATIVO">Apenas Ativos ({listaTrabalhadores.filter(t => t.ativo).length})</option>
-                            <option value="SUBSTITUIDO">Substituídos ({listaTrabalhadores.filter(t => !t.ativo).length})</option>
+                            <option value="TODOS">Todos os Registros ({listaTrabalhadores.length})</option>
+                            <option value="ATIVO">Apenas Ativos ({totalTrabalhadoresAtivos})</option>
+                            <option value="SUBSTITUIDO">Substituídos / Histórico ({totalTrabalhadoresSubstituidos})</option>
                           </select>
                         </div>
                       </div>
@@ -1582,22 +1597,27 @@ export default function ContratosCotasPage() {
                                       <span className="text-xs font-bold text-slate-800">{trab.nomeCompleto}</span>
                                       {trab.cpf === '124.400.384-07' && (
                                         <div className="text-[10px] text-purple-700 font-medium">
-                                          Substituído a partir de 01/09/2026 por Ryan Miqueias (Proc. SEI 04410035.002260/2026-43)
+                                          Substituído a partir de 01/09/2026 por Ryan Miqueias (Proc. SEI 04410035.002260/2026-43) • Posto preenchido por 2 titulares ativos
                                         </div>
                                       )}
-                                      {trab.cpf === '124.466.594-03' && (
-                                        <div className="text-[10px] text-purple-700 font-medium">
-                                          Substituído a partir de 01/08/2026 por Domício de Paula Rodrigues Neto
+                                      {trab.cpf === '852.182.864-00' && (
+                                        <div className="text-[10px] text-emerald-700 font-medium">
+                                          Supervisor titular ativo desde o início da vigência contratual (12/02/2026)
                                         </div>
                                       )}
                                       {trab.cpf === '701.180.294-14' && (
                                         <div className="text-[10px] text-emerald-700 font-medium">
-                                          Substituiu Ícaro Patrick a partir de 01/09/2026 (Proc. SEI 04410035.002260/2026-43)
+                                          Supervisor titular ativo a partir de 01/09/2026 (substituiu Ícaro Patrick • Proc. SEI 04410035.002260/2026-43)
+                                        </div>
+                                      )}
+                                      {trab.cpf === '124.466.594-03' && (
+                                        <div className="text-[10px] text-purple-700 font-medium">
+                                          Substituído a partir de 01/08/2026 por Domício de Paula • Posto de Mossoró preenchido por 2 titulares ativos
                                         </div>
                                       )}
                                       {trab.cpf === '094.853.144-42' && (
                                         <div className="text-[10px] text-emerald-700 font-medium">
-                                          Substituiu Lucas Matheus a partir de 01/08/2026
+                                          Titular ativo a partir de 01/08/2026 (substituiu Lucas Matheus)
                                         </div>
                                       )}
                                     </div>
