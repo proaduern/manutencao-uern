@@ -1162,16 +1162,31 @@ export default function RelatoriosExecucaoPage() {
 
                 <div className="grid grid-cols-3 gap-6 pt-10 text-center">
                   <div className="border-t border-slate-400 pt-2">
-                    <p className="font-bold text-slate-900">Fiscal Técnico do Contrato</p>
-                    <p className="text-[10px] text-slate-500">Portaria de Designação / UERN</p>
+                    <p className="font-bold text-slate-900">José Luiz de Melo Júnior</p>
+                    <p className="text-[10px] text-slate-600 font-medium">Matrícula nº 13944-7</p>
+                    <p className="text-[10px] text-slate-500">Fiscal Técnico do Contrato</p>
                   </div>
                   <div className="border-t border-slate-400 pt-2">
-                    <p className="font-bold text-slate-900">Fiscal Administrativo do Contrato</p>
-                    <p className="text-[10px] text-slate-500">Portaria de Designação / UERN</p>
+                    <p className="font-bold text-slate-900">Erione de Souza Costa</p>
+                    <p className="text-[10px] text-slate-600 font-medium">Matrícula nº 012866-0</p>
+                    <p className="text-[10px] text-slate-500">Fiscal Administrativo do Contrato</p>
                   </div>
                   <div className="border-t border-slate-400 pt-2">
-                    <p className="font-bold text-slate-900">Gestor do Contrato / PROAD</p>
-                    <p className="text-[10px] text-slate-500">Pró-Reitoria de Administração</p>
+                    <p className="font-bold text-slate-900">Pedro Eloy de Paiva Farias</p>
+                    <p className="text-[10px] text-slate-600 font-medium">Matrícula nº 012757-4</p>
+                    <p className="text-[10px] text-slate-500">Gestor do Contrato / Diretoria DAS / PROAD</p>
+                  </div>
+                </div>
+
+                {/* Rodapé Oficial de Autenticação Digital Institucional */}
+                <div className="border-t border-slate-300 pt-3 mt-8 flex items-center justify-between text-[9px] text-slate-500">
+                  <div>
+                    <span className="font-bold text-slate-800">DOCUMENTO AUTENTICADO DIGITALMENTE — ECOSSISTEMA PROAD / UERN</span>
+                    <p>Confira a autenticidade deste documento público em: <span className="font-mono text-blue-700 font-semibold">https://pca-uern.vercel.app/verificar/</span></p>
+                  </div>
+                  <div className="text-right font-mono">
+                    <p>HASH: SHA256-MANUT-REL-EXEC-{new Date().getFullYear()}</p>
+                    <p>Decreto Estadual nº 27.685/2018 e IN nº 01/2026 - PROAD/UERN</p>
                   </div>
                 </div>
               </div>

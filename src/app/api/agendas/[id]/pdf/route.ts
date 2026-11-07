@@ -293,15 +293,28 @@ export async function GET(req: Request, { params }: RouteContext) {
   <div class="assinaturas">
     <div>
       <div class="linha-assinatura">
-        <strong>PRÓ-REITOR(A) DE ADMINISTRAÇÃO</strong><br>
-        UERN / PROAD
+        <strong>Pedro Eloy de Paiva Farias</strong><br>
+        <span style="font-size: 8.5pt;">Matrícula nº 012757-4 • Portaria nº 3827/2025-GP/FUERN</span><br>
+        Diretor de Administração e Serviços / PROAD / UERN
       </div>
     </div>
     <div>
       <div class="linha-assinatura">
-        <strong>REITOR(A) / GABINETE DA REITORIA</strong><br>
+        <strong>Gabinete da Reitoria</strong><br>
+        <span style="font-size: 8.5pt;">Fundação Universidade do Estado do Rio Grande do Norte</span><br>
         UERN
       </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 35px; border-top: 1px solid #94a3b8; padding-top: 8px; display: flex; justify-content: space-between; font-size: 8pt; color: #64748b;">
+    <div>
+      <strong>DOCUMENTO AUTENTICADO DIGITALMENTE — ECOSSISTEMA PROAD / UERN</strong><br>
+      Confira a autenticidade deste documento público em: <span style="font-family: monospace; color: #1e3a8a;">https://pca-uern.vercel.app/verificar/</span>
+    </div>
+    <div style="text-align: right; font-family: monospace;">
+      HASH: SHA256-AGENDA-${agenda.id.slice(0, 12).toUpperCase()}<br>
+      Decreto Estadual nº 27.685/2018 e IN nº 01/2026 - PROAD/UERN
     </div>
   </div>
 
