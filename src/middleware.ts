@@ -5,6 +5,7 @@ import { jwtVerify } from 'jose';
 const JWT_SECRET_STRING = process.env.JWT_SECRET || 'uern_manutencao_segredo_jwt_proad_2026_super_seguro';
 const SECRET = new TextEncoder().encode(JWT_SECRET_STRING);
 const COOKIE_NAME = 'manutencao_uern_token';
+const SERVICE_KEY = process.env.PROAD_SERVICE_KEY || 'proad_interop_internal_service_key_2026_uern';
 
 // Rotas públicas que não exigem login
 const PUBLIC_ROUTES = ['/login', '/primeiro-acesso'];
@@ -12,12 +13,11 @@ const PUBLIC_ROUTES = ['/login', '/primeiro-acesso'];
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Permitir arquivos estáticos, rotas internas do Next.js, callback de SSO e rotas de integração
+  // Permitir arquivos estáticos e rotas de autenticação pública
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/auth/login') ||
     pathname.startsWith('/api/auth/sso-callback') ||
-    pathname.startsWith('/api/integracao') ||
     pathname.includes('/favicon.ico') ||
     pathname.startsWith('/public')
   ) {
@@ -25,6 +25,33 @@ export async function middleware(req: NextRequest) {
   }
 
   const token = req.cookies.get(COOKIE_NAME)?.value;
+
+  // Rotas de integração exigem chave de serviço PROAD OU sessão válida
+  if (pathname.startsWith('/api/integracao')) {
+    const authHeader = req.headers.get('authorization');
+    if (authHeader && authHeader === `Bearer ${SERVICE_KEY}`) {
+      return NextResponse.next();
+    }
+    if (token) {
+      try {
+        await jwtVerify(token, SECRET);
+        return NextResponse.next();
+      } catch {}
+    }
+    return NextResponse.json({ error: 'Não autorizado. Chave de serviço PROAD ou sessão obrigatória.' }, { status: 401 });
+  }
+
+  if (pathname.startsWith('/api/')) {
+    if (!token) {
+      return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+    try {
+      await jwtVerify(token, SECRET);
+      return NextResponse.next();
+    } catch {
+      return NextResponse.json({ error: 'Sessão inválida ou expirada.' }, { status: 401 });
+    }
+  }
   const isPublicRoute = PUBLIC_ROUTES.some((route) => pathname.startsWith(route));
 
   if (!token) {
@@ -61,5 +88,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api/auth|_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
